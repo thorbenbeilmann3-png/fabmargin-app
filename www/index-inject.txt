@@ -1,0 +1,6 @@
+HINWEIS: Damit die App auf Android funktioniert, muss in der index.html vor </body> folgender Block eingefügt werden:
+
+<script src="app.js"></script>
+<script src="capacitor.js"></script>
+
+Der Capacitor-Runtime-Loader wird beim `npx cap sync android` automatisch generiert.

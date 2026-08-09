@@ -1,0 +1,31 @@
+name: Build FabMargin 3D
+on: { workflow_dispatch: {}, push: { branches: [main] } }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-java@v4
+        with: { distribution: 'temurin', java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - name: Install deps
+        run: |
+          npm install
+          npx cap add android || echo "already added"
+          npx cap sync android
+      - name: Build Debug APK (zum Sideloaden auf Ihrem Handy)
+        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabmargin-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Build Release AAB (für Play Store, unsigniert)
+        run: cd android && ./gradlew bundleRelease
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: fabmargin-release-aab-unsigned
+          path: android/app/build/outputs/bundle/release/app-release.aab

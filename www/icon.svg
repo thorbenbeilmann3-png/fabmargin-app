@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1548"/>
+      <stop offset="0.55" stop-color="#0b1730"/>
+      <stop offset="1" stop-color="#081225"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7a63ff"/>
+      <stop offset="1" stop-color="#b6a4ff"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#45d483"/>
+      <stop offset="1" stop-color="#8ff0b3"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
+  <!-- Schild -->
+  <path d="M256 72 L408 128 V264 C408 344 340 404 256 440 C172 404 104 344 104 264 V128 Z"
+        fill="url(#violet)" opacity="0.95"/>
+  <path d="M256 108 L376 152 V262 C376 326 322 376 256 406 C190 376 136 326 136 262 V152 Z"
+        fill="#0c1930"/>
+  <!-- F -->
+  <path d="M196 190 H316 V226 H236 V254 H302 V288 H236 V344 H196 Z" fill="url(#violet)"/>
+  <!-- 3D-Punkt -->
+  <circle cx="336" cy="200" r="18" fill="url(#green)"/>
+</svg>

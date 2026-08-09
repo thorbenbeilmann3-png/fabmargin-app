@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FabMargin 3D</title>
+<meta name="description" content="FabMargin 3D – sichere App für PrintProfit 3D.">
+<meta name="theme-color" content="#081225">
+<meta name="color-scheme" content="dark">
+<meta name="application-name" content="FabMargin 3D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FabMargin 3D">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob:; connect-src 'self' https:; img-src 'self' data: blob:;">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-apple.png">
+<style>
+:root{--bg:#081225;--panel:#101e38;--panel2:#152645;--text:#f5f7ff;--muted:#a9b8d4;--violet:#8c7bff;--violet2:#b6a4ff;--green:#45d483;--amber:#ffc35b;--red:#ff6b75;--line:#2a3c60;--shadow:0 14px 34px #0006}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;min-width:0;overflow-x:hidden}
+body{background:radial-gradient(1200px 700px at 15% -10%, #26205a 0%, transparent 60%), radial-gradient(900px 600px at 90% 10%, #17325a 0%, transparent 55%), linear-gradient(160deg,#071123,#0b1730 60%,#120f2f);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100dvh}
+button,input,select,textarea{font:inherit;color:var(--text)}
+button{border:0;border-radius:12px;padding:12px 16px;cursor:pointer;color:white;background:linear-gradient(135deg,#7a63ff,#a68bff);font-weight:700;box-shadow:0 6px 14px #0003}
+button.secondary{background:#223558;color:#e8edff}
+button.ghost{background:transparent;color:#cbd6ed;box-shadow:none;border:1px solid #2b3d63}
+button.danger{background:linear-gradient(135deg,#ff5f6b,#ff8790)}
+button.success{background:linear-gradient(135deg,#3bbf70,#65e79a)}
+button.tiny{padding:6px 10px;font-size:12px;border-radius:9px}
+input,select,textarea{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);background:#0c1930;outline:0}
+header{padding:24px 16px 8px;max-width:640px;margin:auto;text-align:center}
+.brand{font-weight:900;font-size:24px;display:flex;align-items:center;justify-content:center;gap:10px}
+.brand img{width:44px;height:44px;border-radius:10px}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+main{max-width:640px;margin:0 auto;padding:12px 16px 100px}
+.card{background:var(--panel);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 12px;font-size:18px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+label{display:block;margin:12px 0 6px;color:var(--muted);font-size:13px}
+.lock-badge{display:inline-block;padding:4px 10px;border-radius:99px;background:#22345c;font-size:12px;color:#c9d3ee}
+.lock-badge.ok{background:#1e4d32;color:#a8e8bf}
+.hidden{display:none!important}
+.feature-tile{background:var(--panel2);border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;margin-bottom:10px;border:1px solid #223458}
+.feature-tile .icon{font-size:32px;width:52px;text-align:center}
+.feature-tile .body{flex:1;min-width:0}
+.feature-tile h3{margin:0 0 4px;font-size:15px}
+.feature-tile p{margin:0;color:var(--muted);font-size:12px}
+.feature-tile .price{font-weight:800;color:var(--violet2)}
+.feature-tile.owned{border-color:#2f6b45;background:#12332a}
+.step{background:#0e1c36;border-left:3px solid var(--violet);padding:12px;border-radius:8px;margin:8px 0}
+.warn{background:#3a2415;border-left:3px solid var(--amber);padding:12px;border-radius:8px;margin:8px 0;color:#ffdbaa;font-size:13px}
+.pw-strength{height:6px;border-radius:99px;background:#1a2a48;margin-top:6px;overflow:hidden}
+.pw-strength>div{height:100%;transition:width .2s, background .2s;background:var(--red);width:0}
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:#0a1730cc;backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 6px calc(10px + env(safe-area-inset-bottom))}
+nav.bottom button{background:transparent;box-shadow:none;color:var(--muted);flex:1;padding:8px 4px;font-size:12px;font-weight:600}
+nav.bottom button.active{color:var(--violet2)}
+nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
+.center{text-align:center}
+.logo-tap{width:96px;height:96px;margin:20px auto;cursor:pointer;user-select:none}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.status-dot.ok{background:var(--green)}
+.status-dot.warn{background:var(--amber)}
+.status-dot.err{background:var(--red)}
+</style>
+</head>
+<body>
+
+<!-- SCREEN 1: Master-Passwort einrichten (nur beim allerersten Start) -->
+<section id="screenSetup" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
+    <p class="muted">Erste Einrichtung</p>
+  </header>
+  <main>
+    <div class="card">
+      <h2>🔐 Master-Passwort festlegen</h2>
+      <div class="warn">
+        <b>Wichtig:</b> Ohne dieses Passwort ist <b>nichts</b> in dieser App lesbar. Es wird nirgendwo gespeichert oder übertragen. Wenn Sie es vergessen, sind alle Daten unwiederbringlich verloren.
+      </div>
+      <label>Master-Passwort (mind. 12 Zeichen)</label>
+      <input id="setupPw" type="password" autocomplete="new-password" placeholder="Sehr starkes Passwort">
+      <div class="pw-strength"><div id="pwBar"></div></div>
+      <label>Passwort wiederholen</label>
+      <input id="setupPw2" type="password" autocomplete="new-password">
+      <label>Wiederherstellungs-Hinweis (optional, sichtbar bei gesperrtem Tresor)</label>
+      <input id="setupHint" placeholder="z. B. 'Motto meines Ateliers'">
+      <div style="margin-top:16px">
+        <button id="setupCreateBtn" style="width:100%">🔐 Tresor erstellen & App starten</button>
+      </div>
+    </div>
+    <div class="card small muted">
+      <b>Wie sicher ist das?</b><br>
+      AES-256-GCM mit PBKDF2 (350 000 Iterationen, SHA-256). Ihr Passwort verlässt <b>niemals</b> das Gerät. Wird die App-Datei kopiert, ist der Inhalt ohne Passwort mathematisch nicht knackbar.
+    </div>
+  </main>
+</section>
+
+<!-- SCREEN 2: Login (Master-Passwort eingeben) -->
+<section id="screenLogin" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
+  </header>
+  <main>
+    <div class="card">
+      <img class="logo-tap" src="icon-192.png" alt="Logo" id="logoTap" title="7× tippen für Admin">
+      <h2 class="center">🔒 App entsperren</h2>
+      <p class="center muted small" id="hintLine"></p>
+      <label>Master-Passwort</label>
+      <input id="loginPw" type="password" autocomplete="current-password" placeholder="Passwort">
+      <div id="loginError" class="small" style="color:var(--red);margin-top:8px"></div>
+      <div style="margin-top:14px" class="row">
+        <button id="loginBtn">🔓 Entsperren</button>
+        <button class="ghost" id="resetVaultBtn">Tresor zurücksetzen</button>
+      </div>
+    </div>
+    <div class="card small muted center">
+      <span class="status-dot ok"></span>Verschlüsselung aktiv · AES-256-GCM · PBKDF2
+    </div>
+  </main>
+</section>
+
+<!-- SCREEN 3: Hauptbereich (Feature-Store + gekaufte Module) -->
+<section id="screenHome" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
+    <span class="lock-badge ok">🔓 Tresor entsperrt</span>
+  </header>
+  <main>
+    <div class="card">
+      <h2>🧩 Ihre Module</h2>
+      <div id="ownedList"><p class="muted small">Noch keine Module freigeschaltet.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>🛒 Verfügbare Module</h2>
+      <p class="muted small">Kaufen Sie einzelne Bausteine je nach Bedarf. Kauf über Google Play, sicher und mit Käuferschutz.</p>
+      <div id="storeList"></div>
+    </div>
+
+    <div class="card">
+      <h2>ℹ️ Sicherheitsstatus</h2>
+      <p class="small"><span class="status-dot ok"></span>Tresor verschlüsselt (AES-256-GCM)</p>
+      <p class="small"><span class="status-dot ok"></span>Passwort nur im Arbeitsspeicher (15 Min. Auto-Sperre)</p>
+      <p class="small"><span id="beDot" class="status-dot warn"></span>Backend: <span id="beStatus">nicht verbunden</span></p>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost tiny" id="setBackendBtn">Backend einstellen</button>
+        <button class="ghost tiny" id="restoreBtn">Käufe wiederherstellen</button>
+        <button class="danger tiny" id="lockNowBtn">Jetzt sperren</button>
+      </div>
+    </div>
+  </main>
+  <nav class="bottom">
+    <button data-tab="home" class="active"><span class="ico">🏠</span>Start</button>
+    <button data-tab="store"><span class="ico">🛒</span>Store</button>
+    <button data-tab="admin"><span class="ico">⚙️</span>Admin</button>
+  </nav>
+</section>
+
+<!-- SCREEN 4: Feature-Detail (nach Kauf) -->
+<section id="screenFeature" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> <span id="featTitle">Modul</span></div>
+    <button class="ghost tiny" id="featBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button>
+  </header>
+  <main>
+    <div id="featContent" class="card">
+      <p class="muted">Lade Modulinhalte…</p>
+    </div>
+  </main>
+</section>
+
+<!-- SCREEN 5: Admin-Bereich (7× Logo-Tap) -->
+<section id="screenAdmin" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> Admin-Bereich</div>
+    <button class="ghost tiny" id="adminBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button>
+  </header>
+  <main>
+    <div class="card">
+      <h2>⚙️ Admin</h2>
+      <p class="muted small">Verwaltung, Backend-Verbindung, Master-Passwort ändern.</p>
+      <label>Backend-URL (Render/HTTPS)</label>
+      <input id="adminBackend" placeholder="https://ihre-backend.onrender.com">
+      <div class="row" style="margin-top:8px">
+        <button class="tiny" id="saveBackendBtn">Backend speichern</button>
+        <button class="ghost tiny" id="testBackendBtn">Verbindung testen</button>
+      </div>
+      <div id="adminBackendStatus" class="small muted" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>🔑 Master-Passwort ändern</h2>
+      <label>Aktuelles Passwort</label>
+      <input id="oldPw" type="password">
+      <label>Neues Passwort</label>
+      <input id="newPw1" type="password">
+      <label>Neues Passwort wiederholen</label>
+      <input id="newPw2" type="password">
+      <div style="margin-top:8px"><button id="changePwBtn">Passwort ändern</button></div>
+      <div id="changePwStatus" class="small" style="margin-top:8px"></div>
+    </div>
+    <div class="card">
+      <h2>🧹 Werkzeuge</h2>
+      <div class="row">
+        <button class="ghost tiny" id="exportVaultBtn">Verschlüsseltes Backup exportieren</button>
+        <button class="danger tiny" id="wipeBtn">Alles löschen</button>
+      </div>
+    </div>
+  </main>
+</section>
+
+
+<section id="screenUserLogin" class="hidden">
+  <header><div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div><p class="muted">Kundenbereich</p></header>
+  <main>
+    <div class="card"><h2>🔑 Anmelden</h2>
+      <label>Benutzername</label><input id="uLoginUser">
+      <label>Passwort</label><input id="uLoginPw" type="password">
+      <div id="uLoginErr" class="small" style="color:var(--red);margin-top:6px"></div>
+      <div class="row" style="margin-top:12px"><button id="uLoginBtn">Anmelden</button><button class="ghost" id="uActivateSwitch">Neu aktivieren</button></div>
+    </div>
+    <div class="card hidden" id="uActivateBox"><h2>✉️ Aktivierungscode einlösen</h2>
+      <p class="muted small">Sie haben den Code nach dem Kauf per E-Mail erhalten. Er kann nur einmal verwendet werden.</p>
+      <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL">
+      <label>E-Mail (aus dem Kauf)</label><input id="uEmail" type="email">
+      <label>Wunsch-Benutzername</label><input id="uNewUser">
+      <label>Wunsch-Passwort (mind. 10 Zeichen)</label><input id="uNewPw" type="password">
+      <div id="uActErr" class="small" style="color:var(--red);margin-top:6px"></div>
+      <div style="margin-top:12px"><button id="uActivateBtn">Aktivieren & Anmelden</button></div>
+    </div>
+  </main>
+</section>
+<section id="screenCommunity" class="hidden">
+  <header><div class="brand"><img src="icon-192.png" alt=""> Community</div>
+    <button class="ghost tiny" id="commBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button></header>
+  <main>
+    <div class="card"><h2>💡 Neuer Vorschlag</h2>
+      <label>Titel</label><input id="commTitle" maxlength="80">
+      <label>Beschreibung</label><textarea id="commText" maxlength="500" style="min-height:80px"></textarea>
+      <div style="margin-top:8px"><button id="commPostBtn">Vorschlag senden</button></div>
+    </div>
+    <div class="card"><h2>🗳 Vorschläge & Abstimmung</h2>
+      <div id="commList"><p class="muted small">Lade…</p></div>
+    </div>
+  </main>
+</section>
+
+<script src="assets/crypto-vault.js"></script>
+<script src="features/catalog.js"></script>
+<script src="features/purchase-manager.js"></script>
+<script src="features/content-loader.js"></script>
+<script src="features/user-auth.js"></script>
+<script src="features/community.js"></script>
+<script src="features/integrity.js"></script>
+<script src="app-main.js"></script>
+<script src="app.js"></script>
+<script src="capacitor.js"></script>
+</body></html>

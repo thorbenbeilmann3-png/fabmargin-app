@@ -197,6 +197,13 @@
   function renderStore() {
     const list = $('storeList');
     list.innerHTML = '';
+    const premium = document.createElement('div');
+    premium.className = 'feature-tile';
+    premium.innerHTML = `<div class="icon">🚀</div>
+      <div class="body"><h3>PrintProfit 3D Premium</h3><p>5 Premium-Funktionen mit kostenloser Vorschau · kein Abo.</p></div>
+      <div style="text-align:right"><button class="tiny">Öffnen</button></div>`;
+    premium.querySelector('button').onclick = () => openFeature('premium_center');
+    list.appendChild(premium);
     window.FEATURE_CATALOG.forEach(f => {
       const owned = window.PurchaseManager.isOwned(f.id);
       if (f.included) {
@@ -231,6 +238,12 @@
   }
 
   async function openFeature(fid) {
+    if (fid === 'premium_center') {
+      $('featTitle').textContent = '🚀 PrintProfit 3D Premium';
+      renderPremiumCenter();
+      show('screenFeature');
+      return;
+    }
     const f = window.FEATURE_CATALOG.find(x => x.id === fid);
     if (!f) return;
     $('featTitle').textContent = f.icon + ' ' + f.title;
@@ -241,6 +254,42 @@
       renderFeatureContent(f, content);
     } catch (e) {
       $('featContent').innerHTML = `<p style="color:var(--red)">Fehler: ${e.message}</p>`;
+    }
+
+    function renderPremiumCenter() {
+      $('featContent').innerHTML = `<div class="row" style="margin-bottom:10px">
+        <button class="tiny secondary" data-premium-tab="shop">Shop</button>
+        <button class="tiny secondary" data-premium-tab="check">Print Check</button>
+        <button class="tiny secondary" data-premium-tab="doctor">Print Doctor</button>
+        <button class="tiny secondary" data-premium-tab="profit">Profit Check</button>
+        <button class="tiny secondary" data-premium-tab="brain">Print Brain</button>
+      </div>
+      <div id="premiumTabContent" class="card" style="background:#0e1c36"></div>`;
+      const root = $('featContent');
+      root.onclick = onPremiumTabClick;
+      showPremiumTab('shop');
+    }
+
+    function onPremiumTabClick(e) {
+      const button = e.target.closest('[data-premium-tab]');
+      if (!button) return;
+      showPremiumTab(button.dataset.premiumTab);
+    }
+
+    function showPremiumTab(tab) {
+      const host = document.getElementById('premiumTabContent');
+      if (!host) return;
+      const map = {
+        shop: window.PremiumShop,
+        check: window.PrintCheckFeature,
+        doctor: window.PrintDoctorFeature,
+        profit: window.ProfitCheckFeature,
+        brain: window.PrintBrainFeature
+      };
+      const feature = map[tab];
+      if (!feature) return;
+      host.innerHTML = feature.render();
+      feature.bind(host);
     }
   }
 

@@ -49,6 +49,99 @@ let state = loadState();
 function saveState() { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, DATA_FILE); }
 if (!fs.existsSync(DATA_FILE)) saveState();
 if (!state.purchases) { state.purchases = {}; saveState(); }
+if (!state.premium) {
+  state.premium = { creditsByUser: {}, entitlementsByUser: {}, brainByUser: {} };
+  saveState();
+}
+
+const PREMIUM_PRODUCTS = [
+  { id: 'print_check_pro', title: 'Print Check Pro', priceEur: 0.99, type: 'credit', creditType: 'print_check', credits: 1, preview: 'Kompatibilitätsprüfung kostenlos, Details nach Kauf.' },
+  { id: 'print_doctor_pro_single', title: 'Print Doctor Pro', priceEur: 1.49, type: 'credit', creditType: 'print_doctor', credits: 1, preview: 'Gefundene Ursachen sichtbar, geführte Diagnose nach Kauf.' },
+  { id: 'print_doctor_pro_pack5', title: 'Print Doctor Pro 5er-Paket', priceEur: 5.99, type: 'credit', creditType: 'print_doctor', credits: 5, preview: 'Gefundene Ursachen sichtbar, geführte Diagnose nach Kauf.' },
+  { id: 'verified_print_profile', title: 'Verified Print Profile', priceEur: 2.99, type: 'credit', creditType: 'verified_profile', credits: 1, preview: 'Profil-Metadaten sichtbar, Dateien + Guide nach Kauf.' },
+  { id: 'profit_check_pro_single', title: 'Profit Check Pro', priceEur: 0.99, type: 'credit', creditType: 'profit_check', credits: 1, preview: 'Gesamtkosten kostenlos, Score nach Kauf.' },
+  { id: 'profit_check_unlimited', title: 'Profit Check Unlimited', priceEur: 9.99, type: 'entitlement', entitlement: 'profit_check_unlimited', preview: 'Gesamtkosten kostenlos, Score unbegrenzt nach Kauf.' },
+  { id: 'personal_print_brain', title: 'Personal Print Brain', priceEur: 6.99, type: 'entitlement', entitlement: 'print_brain', preview: 'Lernt aus deinen Ergebnissen nach Kauf.' },
+  {
+    id: 'starter_pack_bundle',
+    title: 'PrintProfit Starter Pack',
+    priceEur: 9.99,
+    type: 'bundle',
+    valueEur: 13.45,
+    savingsEur: 3.46,
+    includes: ['1x Print Check', '1x Print Doctor', '1x Verified Profile', 'Profit Check Unlimited', 'Personal Print Brain'],
+    preview: 'Klare Einmalzahlung ohne Abo.'
+  }
+];
+
+const VERIFIED_PROFILES = [
+  {
+    profileId: 'PP3D-P1P-PETG-0.4-BS-2.4',
+    printer: 'Bambu Lab P1P',
+    material: 'PETG',
+    nozzle: '0.4 mm',
+    slicer: 'Bambu Studio',
+    version: '2.4',
+    publishedAt: '2026-08-01',
+    lastCheckedAt: '2026-08-10',
+    source: 'PrintProfit Testfarm',
+    testStatus: 'Geprüft',
+    includes: ['Maschinenprofil', 'Materialprofil', 'Profile Guide'],
+    disclaimer: 'Geprüftes Ausgangsprofil für die angegebene Konfiguration. Das tatsächliche Ergebnis kann abweichen.'
+  }
+];
+
+function premiumUserId(req, payload = {}) {
+  const fromHeader = String(req.headers['x-premium-user'] || '').trim();
+  const fromBody = String(payload.userId || '').trim();
+  return fromHeader || fromBody || 'default-user';
+}
+function userCredits(userId) {
+  if (!state.premium.creditsByUser[userId]) state.premium.creditsByUser[userId] = {};
+  return state.premium.creditsByUser[userId];
+}
+function userEntitlements(userId) {
+  if (!state.premium.entitlementsByUser[userId]) state.premium.entitlementsByUser[userId] = {};
+  return state.premium.entitlementsByUser[userId];
+}
+function userBrain(userId) {
+  if (!state.premium.brainByUser[userId]) state.premium.brainByUser[userId] = { history: [], recipes: [] };
+  return state.premium.brainByUser[userId];
+}
+function addCredit(userId, creditType, amount = 1) {
+  const credits = userCredits(userId);
+  credits[creditType] = Math.max(0, Number(credits[creditType] || 0) + Number(amount || 0));
+}
+function useCredit(userId, creditType, amount = 1) {
+  const ent = userEntitlements(userId);
+  if (creditType === 'profit_check' && ent.profit_check_unlimited) return { ok: true, unlimited: true, remaining: 'unlimited' };
+  const credits = userCredits(userId);
+  const current = Number(credits[creditType] || 0);
+  if (current < amount) return { ok: false, error: 'Nicht genügend Credits' };
+  credits[creditType] = current - amount;
+  return { ok: true, remaining: credits[creditType] };
+}
+function refundCredit(userId, creditType, amount = 1) {
+  addCredit(userId, creditType, amount);
+}
+function grantProduct(userId, productId) {
+  const p = PREMIUM_PRODUCTS.find(x => x.id === productId);
+  if (!p) throw new Error('Unbekanntes Premium-Produkt');
+  const ent = userEntitlements(userId);
+  if (p.type === 'credit') addCredit(userId, p.creditType, p.credits || 1);
+  if (p.type === 'entitlement') ent[p.entitlement] = true;
+  if (p.type === 'bundle') {
+    addCredit(userId, 'print_check', 1);
+    addCredit(userId, 'print_doctor', 1);
+    addCredit(userId, 'verified_profile', 1);
+    ent.profit_check_unlimited = true;
+    ent.print_brain = true;
+  }
+}
+function requireBrainAccess(userId) {
+  const ent = userEntitlements(userId);
+  return !!ent.print_brain;
+}
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -161,6 +254,276 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
+
+    if (u.pathname === '/premium/products' && req.method === 'GET') {
+      return json(res, 200, {
+        ok: true,
+        notice: 'Echte Zahlung wird später integriert. Credits werden bis dahin per Admin-Panel vergeben.',
+        products: PREMIUM_PRODUCTS
+      }, origin);
+    }
+
+    if (u.pathname === '/premium/purchase' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      const product = PREMIUM_PRODUCTS.find(x => x.id === b.productId);
+      if (!product) return json(res, 400, { ok: false, error: 'Unbekanntes Produkt' }, origin);
+      const adminSecret = String(req.headers['x-security-secret'] || '');
+      const canGrant = !SECURITY_WEBHOOK_SECRET || safeEqual(adminSecret, SECURITY_WEBHOOK_SECRET);
+      if (!canGrant || !b.adminGrant) {
+        return json(res, 200, {
+          ok: true,
+          pending: true,
+          placeholderPayment: true,
+          message: 'Echte Zahlung wird später integriert. Aktuell vergibt das Admin-Panel Credits manuell.',
+          requestedProduct: product.id
+        }, origin);
+      }
+      grantProduct(userId, product.id);
+      saveState();
+      return json(res, 200, { ok: true, granted: true, userId, productId: product.id }, origin);
+    }
+
+    if (u.pathname === '/premium/credits' && req.method === 'GET') {
+      const userId = premiumUserId(req, Object.fromEntries(u.searchParams.entries()));
+      return json(res, 200, {
+        ok: true,
+        userId,
+        credits: userCredits(userId),
+        entitlements: userEntitlements(userId)
+      }, origin);
+    }
+
+    if (u.pathname === '/premium/use-credit' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      if (!b.creditType) return json(res, 400, { ok: false, error: 'creditType erforderlich' }, origin);
+      const result = useCredit(userId, b.creditType, Number(b.amount || 1));
+      if (!result.ok) return json(res, 402, result, origin);
+      saveState();
+      return json(res, 200, { ok: true, userId, creditType: b.creditType, remaining: result.remaining }, origin);
+    }
+
+    if (u.pathname === '/premium/refund-credit' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      if (!b.creditType) return json(res, 400, { ok: false, error: 'creditType erforderlich' }, origin);
+      refundCredit(userId, b.creditType, Number(b.amount || 1));
+      saveState();
+      return json(res, 200, { ok: true, userId, creditType: b.creditType, credits: userCredits(userId) }, origin);
+    }
+
+    if (u.pathname === '/premium/print-check' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      const compatibility = {
+        compatible: true,
+        summary: `${b.printer || 'Drucker'} + ${b.material || 'Material'} mit ${b.nozzle || 'Düse'} grundsätzlich kompatibel.`
+      };
+      const warnings = [];
+      if (String(b.material || '').toUpperCase().includes('PETG')) warnings.push('Filamentfeuchtigkeit kann bei PETG zu Stringing führen.');
+      if (Number(String(b.nozzle || '0.4').replace(',', '.')) > 0.4 && String(b.quality || '').toLowerCase().includes('fein')) {
+        warnings.push('Feine Qualität mit großer Düse kann Details verschlechtern.');
+      }
+      if (b.preview !== false) return json(res, 200, { ok: true, preview: true, compatibility, paywall: 'Details nach Kauf für 0,99 € pro Analyse.' }, origin);
+
+      const debit = useCredit(userId, 'print_check', 1);
+      if (!debit.ok) return json(res, 402, debit, origin);
+      try {
+        if (b.forceError) throw new Error('Technischer Fehler bei Analyse');
+        const details = {
+          keySettings: [
+            { name: 'Temperatur', explain: 'Mittlere Temperatur als Startwert für saubere Layerhaftung wählen.' },
+            { name: 'Geschwindigkeit', explain: 'Erste Schicht langsamer drucken, damit das Teil sicher haftet.' },
+            { name: 'Erste Schicht', explain: 'Etwas mehr Linienbreite erhöht die Bett-Haftung.' },
+            { name: 'Lüfter', explain: 'Bei PETG den Lüfter moderat halten, um Layerhaftung nicht zu schwächen.' },
+            { name: 'Wände', explain: 'Mehr Außenwände verbessern Stabilität und Oberfläche.' },
+            { name: 'Infill', explain: 'Infill nach Einsatzgebiet wählen: funktional höher, Deko niedriger.' },
+            { name: 'Support', explain: 'Support-Abstand fein abstimmen, damit Supports leichter lösbar sind.' }
+          ],
+          plainLanguage: 'Die erste Schicht wird langsamer gedruckt, weil eine gute Haftung wichtiger ist als Geschwindigkeit.',
+          warnings,
+          checklist: ['Druckbett sauber', 'Richtige Düse ausgewählt', 'Material kontrolliert', 'Genügend Filament vorhanden', 'Profil kontrolliert']
+        };
+        saveState();
+        return json(res, 200, { ok: true, preview: false, compatibility, details, remainingCredits: userCredits(userId).print_check || 0 }, origin);
+      } catch (e) {
+        refundCredit(userId, 'print_check', 1);
+        saveState();
+        return json(res, 500, { ok: false, error: e.message, refunded: true }, origin);
+      }
+    }
+
+    if (u.pathname === '/premium/print-doctor' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      const issue = String(b.issue || '').toLowerCase();
+      const causes = [
+        { cause: 'Filamentfeuchtigkeit', why: 'Feuchtes Filament führt häufig zu Stringing und schlechter Oberfläche.', test: 'Filament 4-6h trocknen und nur diese Variable ändern.' },
+        { cause: 'Temperatur', why: 'Zu hohe oder zu niedrige Temperatur verschlechtert Fluss und Haftung.', test: 'Nur Temperatur um 5°C anpassen und Testdruck starten.' },
+        { cause: 'Geschwindigkeit', why: 'Zu hohe Geschwindigkeit kann Unterextrusion und Layerfehler auslösen.', test: 'Nur Geschwindigkeit um 10-15% reduzieren.' }
+      ];
+      if (issue.includes('warping')) causes.unshift({ cause: 'Bett-Haftung', why: 'Warping startet oft durch mangelnde Haftung an den Ecken.', test: 'Bett reinigen und erste Schicht-Temperatur leicht erhöhen.' });
+      const topCauses = causes.slice(0, 3);
+      if (b.preview !== false) {
+        return json(res, 200, {
+          ok: true,
+          preview: true,
+          foundCauseCount: topCauses.length,
+          causes: topCauses.map(c => c.cause),
+          paywall: 'Vollständige Diagnose nach Kauf für 1,49 €.'
+        }, origin);
+      }
+      const debit = useCredit(userId, 'print_doctor', 1);
+      if (!debit.ok) return json(res, 402, debit, origin);
+      try {
+        if (b.forceError) throw new Error('Technischer Fehler bei Diagnose');
+        const steps = topCauses.map((c, i) => ({
+          step: i + 1,
+          title: c.cause,
+          why: c.why,
+          singleChangeTest: c.test,
+          feedbackOptions: ['BESSER', 'GLEICH', 'SCHLECHTER']
+        }));
+        saveState();
+        return json(res, 200, { ok: true, preview: false, issue: b.issue || 'Allgemeines Druckproblem', steps, protocolHint: 'Nach jedem Test genau eine Einstellung ändern und Ergebnis markieren.' }, origin);
+      } catch (e) {
+        refundCredit(userId, 'print_doctor', 1);
+        saveState();
+        return json(res, 500, { ok: false, error: e.message, refunded: true }, origin);
+      }
+    }
+
+    if (u.pathname === '/premium/profiles' && req.method === 'GET') {
+      const payload = Object.fromEntries(u.searchParams.entries());
+      const userId = premiumUserId(req, payload);
+      const full = u.searchParams.get('full') === 'true';
+      if (!full) {
+        return json(res, 200, { ok: true, preview: true, profiles: VERIFIED_PROFILES }, origin);
+      }
+      const profileId = u.searchParams.get('profileId');
+      const profile = VERIFIED_PROFILES.find(p => p.profileId === profileId) || VERIFIED_PROFILES[0];
+      const debit = useCredit(userId, 'verified_profile', 1);
+      if (!debit.ok) return json(res, 402, debit, origin);
+      try {
+        const files = [
+          { name: 'machine-profile.json', content: { profileId: profile.profileId, printer: profile.printer, nozzle: profile.nozzle, acceleration: 'moderate', speedPreset: 'balanced' } },
+          { name: 'material-profile.json', content: { material: profile.material, nozzleTemp: '245°C', bedTemp: '80°C', fan: '35%' } }
+        ];
+        const guide = [
+          { changed: 'Support-Abstand 0,20 → 0,25 mm', why: 'Supports lassen sich leichter entfernen, Unterseite kann minimal rauer werden.' },
+          { changed: 'Erste Schicht langsamer', why: 'Bessere Haftung für zuverlässigeren Start.' }
+        ];
+        saveState();
+        return json(res, 200, { ok: true, preview: false, profile, files, guide }, origin);
+      } catch (e) {
+        refundCredit(userId, 'verified_profile', 1);
+        saveState();
+        return json(res, 500, { ok: false, error: e.message, refunded: true }, origin);
+      }
+    }
+
+    if (u.pathname === '/premium/profit-check' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      const n = (v) => Number(v || 0);
+      const totalCosts = n(b.materialCost) + n(b.electricityCost) + n(b.machineCost) + n(b.laborCost) + n(b.packagingCost) + n(b.feeCost) + n(b.scrapCost);
+      const revenue = n(b.revenue);
+      const profit = revenue - totalCosts;
+      const printHours = Math.max(0.01, n(b.printHours));
+      const profitPerHour = profit / printHours;
+      const previewPayload = { totalCosts, revenue, profit, profitPerHour: Number(profitPerHour.toFixed(2)) };
+      if (b.preview !== false) return json(res, 200, { ok: true, preview: true, ...previewPayload, paywall: 'PrintProfit Score nach Kauf für 0,99 € oder Unlimited.' }, origin);
+
+      const debit = useCredit(userId, 'profit_check', 1);
+      if (!debit.ok) return json(res, 402, debit, origin);
+      try {
+        if (b.forceError) throw new Error('Technischer Fehler bei Kalkulation');
+        let score = Math.round(Math.max(0, Math.min(100, 50 + (profit * 2) - (printHours * 0.4))));
+        if (profitPerHour < 1) score = Math.min(score, 40);
+        const traffic = score >= 70 ? '🟢' : score >= 45 ? '🟡' : '🔴';
+        const warning = profitPerHour < 1 ? 'Vorsicht: Gewinn pro Druckerstunde ist sehr niedrig.' : '';
+        const reason = profit > 0
+          ? `Der Auftrag ist profitabel, bindet den Drucker aber ca. ${printHours.toFixed(1)} Stunden.`
+          : 'Der Auftrag ist mit den aktuellen Kosten nicht profitabel.';
+        saveState();
+        return json(res, 200, { ok: true, preview: false, ...previewPayload, score, traffic, reason, warning }, origin);
+      } catch (e) {
+        refundCredit(userId, 'profit_check', 1);
+        saveState();
+        return json(res, 500, { ok: false, error: e.message, refunded: true }, origin);
+      }
+    }
+
+    if (u.pathname === '/premium/brain/save' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
+      const brain = userBrain(userId);
+      const entry = {
+        id: crypto.randomUUID(),
+        savedAt: new Date().toISOString(),
+        printer: b.printer || '',
+        material: b.material || '',
+        nozzle: b.nozzle || '',
+        temperature: b.temperature || '',
+        result: b.result || '',
+        notes: b.notes || ''
+      };
+      brain.history.unshift(entry);
+      brain.history = brain.history.slice(0, 200);
+      saveState();
+      return json(res, 200, { ok: true, entry }, origin);
+    }
+
+    if (u.pathname === '/premium/brain/suggest' && req.method === 'GET') {
+      const payload = Object.fromEntries(u.searchParams.entries());
+      const userId = premiumUserId(req, payload);
+      if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
+      const brain = userBrain(userId);
+      const printer = String(u.searchParams.get('printer') || '').toLowerCase();
+      const material = String(u.searchParams.get('material') || '').toLowerCase();
+      const nozzle = String(u.searchParams.get('nozzle') || '').toLowerCase();
+      const similar = brain.history.filter(x =>
+        String(x.printer).toLowerCase() === printer &&
+        String(x.material).toLowerCase() === material &&
+        String(x.nozzle).toLowerCase() === nozzle
+      );
+      const success = similar.filter(x => String(x.result).toLowerCase().includes('gut') || String(x.result).toLowerCase().includes('sehr gut'));
+      const best = success[0] || similar[0] || null;
+      const failed = similar.find(x => String(x.result).toLowerCase().includes('fehler') || String(x.result).toLowerCase().includes('schlecht'));
+      return json(res, 200, {
+        ok: true,
+        similarCount: similar.length,
+        suggestion: best ? `Bei ähnlichen Drucken funktionierte ${best.temperature || 'die letzte Einstellung'} am besten.` : 'Noch keine vergleichbaren Druckdaten gespeichert.',
+        failureMemory: failed ? `Ähnlicher Druck war problematisch: ${failed.result}. Notiz: ${failed.notes || 'keine'}` : '',
+        recipes: brain.recipes.slice(0, 5)
+      }, origin);
+    }
+
+    if (u.pathname === '/premium/brain/recipe' && req.method === 'POST') {
+      const b = await body(req);
+      const userId = premiumUserId(req, b);
+      if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
+      const brain = userBrain(userId);
+      const recipe = {
+        id: crypto.randomUUID(),
+        savedAt: new Date().toISOString(),
+        name: b.name || 'Erfolgsrezept',
+        printer: b.printer || '',
+        filament: b.filament || '',
+        profile: b.profile || '',
+        settings: b.settings || '',
+        nozzle: b.nozzle || '',
+        printTime: b.printTime || '',
+        result: b.result || '',
+        notes: b.notes || ''
+      };
+      brain.recipes.unshift(recipe);
+      brain.recipes = brain.recipes.slice(0, 100);
+      saveState();
+      return json(res, 200, { ok: true, recipe, hint: 'Mit "Noch einmal so drucken" erneut nutzbar.' }, origin);
+    }
 
     return json(res, 404, { ok: false, error: 'Nicht gefunden' }, origin);
   } catch (e) {

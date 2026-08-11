@@ -13,6 +13,22 @@ Master-Passwort unlesbar.
 - ✅ **Verschlüsselte Content-Dateien** (`.enc`) – ohne Passwort unlesbar
 - ✅ **Auto-Sperre** nach 15 Min. Inaktivität
 - ✅ **ProGuard/R8** Code-Verschleierung für den nativen Teil
+- ✅ **PrintProfit Premium-Bereich** mit 5 Premium-Funktionen inkl. kostenloser Vorschau
+
+## 💎 Premium (PrintProfit 3D)
+
+- **Print Check Pro** (0,99 €)
+- **Print Doctor Pro** (1,49 € / 5 für 5,99 €)
+- **Verified Print Profile** (2,99 €)
+- **Profit Check Pro** (0,99 € / 9,99 € Unlimited)
+- **Personal Print Brain** (6,99 € einmalig)
+- **Starter Pack Bundle** (9,99 € statt 13,45 € Einzelwert)
+
+Backend-Endpunkte (Platzhalter-Zahlung, Credits per Admin):
+`/premium/products`, `/premium/purchase`, `/premium/credits`, `/premium/use-credit`,
+`/premium/refund-credit`, `/premium/print-check`, `/premium/print-doctor`,
+`/premium/profiles`, `/premium/profit-check`, `/premium/brain/save`,
+`/premium/brain/suggest`, `/premium/brain/recipe`
 
 ## 📂 Struktur
 

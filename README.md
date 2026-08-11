@@ -17,7 +17,7 @@ Master-Passwort unlesbar.
 ## 📂 Struktur
 
 ```
-fabmargin-android-v2/
+fabmargin-app/
 ├── www/                          # Web-App (wird in APK eingebettet)
 │   ├── index.html                # Neue Oberfläche mit Setup/Login/Store
 │   ├── app-main.js               # Haupt-App-Logik
@@ -30,19 +30,18 @@ fabmargin-android-v2/
 │   │   └── content-loader.js     # Verschlüsselter Content-Loader
 │   └── content/
 │       ├── *.enc                 # Verschlüsselte Modul-Inhalte
-│       └── _sources.json         # Klartext-Vorlage (nicht ins APK!)
 ├── backend/                      # Erweitertes Node.js-Backend
 │   ├── server.js                 # + /purchase/verify Endpoint
 │   └── package.json
 ├── android-config/
 │   └── proguard-rules.pro        # Code-Verschleierung
+├── SCHNELLSTART-CLOUD-BUILD.md   # Schnellstart für GitHub Actions / Cloud Build
 ├── docs/
-│   ├── 01-SCHNELLSTART.md
-│   ├── 02-ANDROID-STUDIO.md
-│   ├── 03-CLOUD-BUILD.md
-│   ├── 04-PLAY-STORE.md
-│   ├── 05-IN-APP-KAEUFE.md       # ⭐ NEU
-│   └── 06-VERSCHLUESSELUNG.md    # ⭐ NEU
+│   ├── 05-IN-APP-KAEUFE.md       # Play-Store-Produkte & Preise
+│   ├── 06-VERSCHLUESSELUNG.md    # Sicherheits- und Kryptografie-Konzept
+│   ├── 07-KUNDEN-COMMUNITY.md    # Kundenkonto, Aktivierung, Community
+│   ├── 08-SICHERHEIT-REALISTISCH.md
+│   └── 09-APK-DIREKT-DOWNLOAD.md
 ├── android-assets/               # Play-Store-Materialien
 └── capacitor.config.json
 ```
@@ -65,7 +64,7 @@ im Backend – nicht im „Verstecken" des Codes.
 ## 🚀 Ihre nächsten Schritte
 
 1. ZIP entpacken.
-2. `docs/01-SCHNELLSTART.md` lesen.
+2. `SCHNELLSTART-CLOUD-BUILD.md` lesen.
 3. Node.js + Android Studio installieren (oder GitHub-Cloud-Build).
 4. `npm install && npx cap add android && npx cap sync android`.
 5. APK/AAB bauen, testen, in Play Console hochladen.

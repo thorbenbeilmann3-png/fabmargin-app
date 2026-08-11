@@ -1,4 +1,13 @@
 (function (global) {
+  function esc(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function addCard() {
     const homeMain = document.querySelector('#screenHome main');
     if (!homeMain) return;
@@ -11,7 +20,7 @@
       <div class="row">
         <div>
           <label>Drucker wählen</label>
-          <select id="pcPrinter">${printers.map((p) => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
+          <select id="pcPrinter">${printers.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>
         </div>
         <div>
           <label>Material wählen</label>
@@ -39,7 +48,7 @@
         if (preview) {
           result.textContent = `✅ Vorschau: ${data.preview.summary}`;
         } else {
-          result.innerHTML = `<b>Einstellungen:</b> Düse ${data.analysis.settings.nozzleTempC}°C · Bett ${data.analysis.settings.bedTempC}°C · Lüfter ${data.analysis.settings.fanPct}%<br><b>Warnung:</b> ${data.analysis.warning}<br><b>Checkliste:</b> ${data.analysis.checklist.join(', ')}`;
+          result.textContent = `Einstellungen: Düse ${data.analysis.settings.nozzleTempC}°C · Bett ${data.analysis.settings.bedTempC}°C · Lüfter ${data.analysis.settings.fanPct}% | Warnung: ${data.analysis.warning} | Checkliste: ${data.analysis.checklist.join(', ')}`;
           global.PremiumShop.refreshCredits();
         }
       } catch (e) {

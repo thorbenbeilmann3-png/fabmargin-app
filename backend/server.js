@@ -260,21 +260,16 @@ const server = http.createServer(async (req, res) => {
       const b = await body(req);
       const { id, data } = premiumUser(b.userId);
       if (Number(b.adminGrantCredits) > 0) {
+        if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Admin-Authentifizierung erforderlich' }, origin);
         applyCredits(data, Number(b.adminGrantCredits), `admin grant user=${id}`);
         saveState();
         return json(res, 200, { ok: true, credits: data.credits, note: 'Test-Credits vergeben (Admin).' }, origin);
       }
       const product = PREMIUM_PRODUCTS.find((x) => x.id === b.productId);
       if (!product) return json(res, 400, { ok: false, error: 'Unbekanntes Produkt' }, origin);
-      if (product.credits) applyCredits(data, product.credits, `buy ${product.id} user=${id}`);
-      if (product.unlockBrain) data.brainUnlocked = true;
-      if (product.unlimitedDays) data.unlimitedUntil = new Date(Date.now() + product.unlimitedDays * 86400000).toISOString();
-      saveState();
-      return json(res, 200, {
-        ok: true,
-        credits: data.credits,
-        unlimitedUntil: data.unlimitedUntil,
-        paymentPlaceholder: 'Echte Zahlung wird später integriert.',
+      return json(res, 501, {
+        ok: false,
+        error: 'Echte Zahlung wird später integriert. Bitte aktuell Test-Credits über den Admin-Bereich vergeben.',
         notice: PREMIUM_NOTICE
       }, origin);
     }
@@ -287,12 +282,13 @@ const server = http.createServer(async (req, res) => {
         saveState();
         return json(res, 200, { ok: true, used: usage.charged, credits: data.credits, unlimited: usage.unlimited }, origin);
       } catch (e) {
-        return json(res, 400, { ok: false, error: e.message }, origin);
+        return json(res, e.status || 400, { ok: false, error: e.message }, origin);
       }
     }
 
     if (u.pathname === '/premium/refund-credits' && req.method === 'POST') {
       const b = await body(req);
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Admin-Authentifizierung erforderlich' }, origin);
       const { id, data } = premiumUser(b.userId);
       applyCredits(data, Number(b.credits), `refund user=${id} reason=${b.reason || 'technical error'}`);
       saveState();
@@ -378,6 +374,9 @@ const server = http.createServer(async (req, res) => {
       const profile = PREMIUM_PROFILES.find((x) => x.id === b.profileId);
       if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
       const { id, data } = premiumUser(b.userId);
+      if (data.unlockedProfiles.includes(profile.id)) {
+        return json(res, 200, { ok: true, alreadyUnlocked: true, profile, creditsLeft: data.credits, notice: PREMIUM_NOTICE }, origin);
+      }
       let charged = 0;
       try {
         charged = useCredits(data, 3, `unlock-profile user=${id} profile=${profile.id}`).charged;

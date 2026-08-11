@@ -1,4 +1,13 @@
 (function (global) {
+  function esc(value) {
+    return String(value)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
   function addCard() {
     const homeMain = document.querySelector('#screenHome main');
     if (!homeMain) return;
@@ -15,7 +24,7 @@
       <div class="row">
         <div>
           <label>Drucker</label>
-          <select id="pbPrinter">${printers.map((p) => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
+          <select id="pbPrinter">${printers.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>
         </div>
         <div>
           <label>Material</label>

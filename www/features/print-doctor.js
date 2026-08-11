@@ -40,7 +40,7 @@
         if (preview) {
           result.textContent = `Vorschau: ${data.preview.foundCauses} mögliche Ursachen gefunden.`;
         } else {
-          result.innerHTML = `<b>Nur eine Änderung:</b> ${data.diagnosis.nextChange}<br>${data.diagnosis.explanation}`;
+          result.textContent = `Nur eine Änderung: ${data.diagnosis.nextChange} | ${data.diagnosis.explanation}`;
           global.PremiumShop.refreshCredits();
         }
       } catch (e) {
@@ -50,7 +50,7 @@
 
     function feedback(value) {
       if (!result.textContent && !result.innerHTML) return;
-      result.innerHTML += `<br><i>Feedback gespeichert: ${value}</i>`;
+      result.textContent = `${result.textContent} | Feedback gespeichert: ${value}`;
     }
 
     card.querySelector('#pdPreviewBtn').onclick = () => run(true);

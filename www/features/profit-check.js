@@ -40,7 +40,7 @@
         if (preview) {
           result.textContent = `Gesamtkosten geschätzt: ${data.preview.totalCost.toFixed(2)} €`;
         } else {
-          result.innerHTML = `Score: <b>${data.analysis.score}/100</b> (${data.analysis.badge}) · Gewinn/Stunde: ${data.analysis.profitPerHour.toFixed(2)} €<br>${data.analysis.warning}`;
+          result.textContent = `Score: ${data.analysis.score}/100 (${data.analysis.badge}) · Gewinn/Stunde: ${data.analysis.profitPerHour.toFixed(2)} € | ${data.analysis.warning}`;
           global.PremiumShop.refreshCredits();
         }
       } catch (e) {

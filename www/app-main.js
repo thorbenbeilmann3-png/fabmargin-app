@@ -2,7 +2,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin']
+    ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin','screenUserLogin','screenCommunity']
       .forEach(s => $(s).classList.toggle('hidden', s !== id));
     window.scrollTo(0,0);
   };
@@ -92,6 +92,7 @@
         b.classList.add('active');
         if (tab === 'home') { renderHome(); show('screenHome'); }
         else if (tab === 'store') { renderStore(); show('screenHome'); document.getElementById('storeList').scrollIntoView({behavior:'smooth'}); }
+        else if (tab === 'community') { show('screenCommunity'); if (window.__renderComm) window.__renderComm(); }
         else if (tab === 'admin') show('screenAdmin');
       });
     });
@@ -298,7 +299,7 @@
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uActErr').textContent=e.message;}
     };
-    if($('commBackBtn')) $('commBackBtn').onclick=()=>{document.getElementById('screenCommunity').classList.add('hidden');document.getElementById('screenHome').classList.remove('hidden');};
+    if($('commBackBtn')) $('commBackBtn').onclick=()=>show('screenHome');
     if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
       const t=$('commTitle').value.trim(),x=$('commText').value.trim();
       if(!t||!x) return alert('Titel und Text erforderlich');
@@ -317,8 +318,17 @@
       if(!r.ok||!r.items||!r.items.length){el.innerHTML='<p class="muted small">Noch keine Vorschläge.</p>';return;}
       el.innerHTML=r.items.map(i=>`<div class="feature-tile"><div class="icon">💡</div>
         <div class="body"><h3>${i.title}</h3><p>${i.text}</p><p class="small muted">${i.votes||0} Stimmen · ${i.author||'Anonym'}</p></div>
-        <div><button class="tiny" onclick="Community.vote('${i.id}',1).then(()=>location.reload())">👍</button>
-        <button class="tiny ghost" onclick="Community.vote('${i.id}',-1).then(()=>location.reload())">👎</button></div></div>`).join('');
+        <div><button class="tiny" data-vote-id="${i.id}" data-vote-dir="1">👍</button>
+        <button class="tiny ghost" data-vote-id="${i.id}" data-vote-dir="-1">👎</button></div></div>`).join('');
+      el.querySelectorAll('button[data-vote-id]').forEach((btn)=>{
+        btn.addEventListener('click', async ()=>{
+          const id = btn.getAttribute('data-vote-id');
+          const dir = Number(btn.getAttribute('data-vote-dir'));
+          const v = await window.Community.vote(id, dir);
+          if (!v.ok) return alert(v.error || 'Fehler');
+          renderComm();
+        });
+      });
     }catch(e){el.innerHTML='<p class="small" style="color:var(--red)">Fehler: '+e.message+'</p>';}
   }
   window.__renderComm=renderComm;

@@ -41,7 +41,10 @@ function initialState() {
     admin: { username: process.env.ADMIN_USERNAME, salt, passwordHash: hashPassword(process.env.ADMIN_PASSWORD, salt), updatedAt: new Date().toISOString() },
     reset: null,
     security: { failedLogins: 0, purchasesPaused: false, pauseReason: '', incidents: [] },
-    purchases: {}  // purchaseToken -> {sku, verifiedAt, orderId}
+    purchases: {},  // purchaseToken -> {sku, verifiedAt, orderId}
+    users: {}, // username -> {email, salt, passwordHash, role, createdAt}
+    pendingCodes: {}, // code -> {email, createdAt, usedAt}
+    community: {} // id -> {id, title, text, author, createdAt, updatedAt, votesBy}
   };
 }
 function loadState() { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return initialState(); } }
@@ -49,6 +52,11 @@ let state = loadState();
 function saveState() { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, DATA_FILE); }
 if (!fs.existsSync(DATA_FILE)) saveState();
 if (!state.purchases) { state.purchases = {}; saveState(); }
+if (!state.users) { state.users = {}; saveState(); }
+if (!state.pendingCodes) { state.pendingCodes = {}; saveState(); }
+if (!state.community) { state.community = {}; saveState(); }
+if (!state.security) { state.security = { failedLogins: 0, purchasesPaused: false, pauseReason: '', incidents: [] }; saveState(); }
+if (!Array.isArray(state.security.incidents)) { state.security.incidents = []; saveState(); }
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -58,8 +66,18 @@ function incident(type, detail, severity = 'info') {
   return item;
 }
 
-function createSession() { const t = b64(crypto.randomBytes(32)); sessions.set(t, Date.now() + 30 * 60 * 1000); return t; }
-function sessionOk(req) { const h = String(req.headers.authorization || ''); const t = h.startsWith('Bearer ') ? h.slice(7) : ''; const exp = sessions.get(t); if (!exp || exp < Date.now()) { if (t) sessions.delete(t); return false; } return true; }
+function createSession(payload = {}) {
+  const t = b64(crypto.randomBytes(32));
+  sessions.set(t, { exp: Date.now() + 30 * 60 * 1000, ...payload });
+  return t;
+}
+function getSession(req) {
+  const h = String(req.headers.authorization || '');
+  const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+  const item = sessions.get(t);
+  if (!item || item.exp < Date.now()) { if (t) sessions.delete(t); return null; }
+  return item;
+}
 function rateOk(key, limit, windowMs) { const now = Date.now(), x = limits.get(key); if (!x || now - x.start >= windowMs) { limits.set(key, { start: now, count: 1 }); return true; } x.count++; return x.count <= limit; }
 function json(res, status, obj, origin) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'" };
@@ -68,6 +86,22 @@ function json(res, status, obj, origin) {
 }
 async function body(req) { let s = ''; for await (const c of req) { s += c; if (s.length > 32768) throw new Error('Payload zu groß'); } return s ? JSON.parse(s) : {}; }
 function originAllowed(req) { const o = req.headers.origin; if (!o) return ''; if (allowedOrigins.length && !allowedOrigins.includes(o)) return null; return o; }
+function normalizedText(v) {
+  return String(v || '').toLowerCase().replace(/\s+/g, ' ').replace(/[^\p{L}\p{N} ]/gu, '').trim();
+}
+function postScore(post) {
+  return Object.values(post?.votesBy || {}).reduce((sum, x) => sum + (Number(x) || 0), 0);
+}
+function validUserName(v) { return /^[a-zA-Z0-9_.-]{3,32}$/.test(String(v || '')); }
+function authUser(req) {
+  const s = getSession(req);
+  if (!s || !s.username || !state.users[s.username]) return null;
+  return s.username;
+}
+function createActivationCode() {
+  const p = b64(crypto.randomBytes(9)).replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  return `${p.slice(0, 4)}-${p.slice(4, 8)}-${p.slice(8, 12)}`;
+}
 
 // -------- Google Play Billing: JWT-Signatur mit Service-Account --------
 async function googleAccessToken() {
@@ -157,7 +191,126 @@ const server = http.createServer(async (req, res) => {
         return json(res, 401, { ok: false, error: 'Falsche Zugangsdaten' }, origin);
       }
       state.security.failedLogins = 0; saveState();
-      return json(res, 200, { ok: true, token: createSession(), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
+      return json(res, 200, { ok: true, token: createSession({ role: 'admin', username: state.admin.username }), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
+    }
+
+    if (u.pathname === '/admin/generate-code' && req.method === 'POST') {
+      if (!rateOk('admin-code:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const s = getSession(req);
+      if (!s || s.role !== 'admin') return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const b = await body(req);
+      const email = String(b.email || '').trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json(res, 400, { ok: false, error: 'Gültige E-Mail erforderlich' }, origin);
+      const code = createActivationCode();
+      state.pendingCodes[code] = { email, createdAt: new Date().toISOString(), usedAt: null };
+      saveState();
+      return json(res, 200, { ok: true, code }, origin);
+    }
+
+    if (u.pathname === '/user/activate' && req.method === 'POST') {
+      if (!rateOk('activate:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      const code = String(b.code || '').trim().toUpperCase();
+      const username = String(b.username || '').trim();
+      const password = String(b.password || '');
+      const email = String(b.email || '').trim().toLowerCase();
+      if (!code || !username || !password || !email) return json(res, 400, { ok: false, error: 'code, username, password, email erforderlich' }, origin);
+      if (!validUserName(username)) return json(res, 400, { ok: false, error: 'Benutzername ungültig (3-32 Zeichen: a-z, 0-9, _ . -)' }, origin);
+      if (password.length < 10) return json(res, 400, { ok: false, error: 'Passwort zu kurz (mindestens 10 Zeichen)' }, origin);
+      if (state.users[username]) return json(res, 409, { ok: false, error: 'Benutzername bereits vergeben' }, origin);
+      const codeEntry = state.pendingCodes[code];
+      if (!codeEntry || codeEntry.usedAt) return json(res, 400, { ok: false, error: 'Aktivierungscode ungültig oder bereits verwendet' }, origin);
+      if (codeEntry.email !== email) return json(res, 400, { ok: false, error: 'E-Mail passt nicht zum Aktivierungscode' }, origin);
+      const salt = b64(crypto.randomBytes(24));
+      state.users[username] = { email, salt, passwordHash: hashPassword(password, salt), role: 'user', createdAt: new Date().toISOString() };
+      codeEntry.usedAt = new Date().toISOString();
+      saveState();
+      const token = createSession({ role: 'user', username });
+      incident('user_activated', `username=${username}`, 'info');
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    if (u.pathname === '/user/login' && req.method === 'POST') {
+      if (!rateOk('user-login:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      const username = String(b.username || '').trim();
+      const password = String(b.password || '');
+      const user = state.users[username];
+      if (!user) return json(res, 401, { ok: false, error: 'Ungültige Zugangsdaten' }, origin);
+      const ok = safeEqual(hashPassword(password, user.salt), user.passwordHash);
+      if (!ok) return json(res, 401, { ok: false, error: 'Ungültige Zugangsdaten' }, origin);
+      const token = createSession({ role: user.role || 'user', username });
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    if (u.pathname === '/community/list' && req.method === 'GET') {
+      const items = Object.values(state.community)
+        .map(item => ({
+          id: item.id,
+          title: item.title,
+          text: item.text,
+          author: item.author,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+          votes: postScore(item)
+        }))
+        .sort((a, b) => (b.votes - a.votes) || (b.createdAt || '').localeCompare(a.createdAt || ''));
+      return json(res, 200, { ok: true, items }, origin);
+    }
+
+    if (u.pathname === '/community/post' && req.method === 'POST') {
+      if (!rateOk('community-post:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const username = authUser(req);
+      if (!username) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const b = await body(req);
+      const title = String(b.title || '').trim();
+      const text = String(b.text || '').trim();
+      if (!title || !text) return json(res, 400, { ok: false, error: 'Titel und Text erforderlich' }, origin);
+      if (title.length > 120 || text.length > 2000) return json(res, 400, { ok: false, error: 'Titel/Text zu lang' }, origin);
+      const needle = normalizedText(`${title} ${text}`);
+      const similar = Object.values(state.community).find(item => {
+        const candidate = normalizedText(`${item.title} ${item.text}`);
+        return candidate && needle && (candidate.includes(needle) || needle.includes(candidate));
+      });
+      if (similar) {
+        return json(res, 409, {
+          ok: false,
+          error: 'Ähnlicher Vorschlag existiert bereits',
+          similar: { id: similar.id, title: similar.title }
+        }, origin);
+      }
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      state.community[id] = { id, title, text, author: username, createdAt: now, updatedAt: now, votesBy: {} };
+      saveState();
+      incident('community_post_created', `id=${id} user=${username}`, 'info');
+      return json(res, 200, { ok: true, id }, origin);
+    }
+
+    if (u.pathname === '/community/vote' && req.method === 'POST') {
+      if (!rateOk('community-vote:' + ip, 40, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const username = authUser(req);
+      if (!username) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const b = await body(req);
+      const id = String(b.id || '').trim();
+      const dir = Number(b.dir);
+      if (!id || ![1, -1].includes(dir)) return json(res, 400, { ok: false, error: 'id und dir (+1/-1) erforderlich' }, origin);
+      const post = state.community[id];
+      if (!post) return json(res, 404, { ok: false, error: 'Vorschlag nicht gefunden' }, origin);
+      if (!post.votesBy) post.votesBy = {};
+      post.votesBy[username] = dir;
+      post.updatedAt = new Date().toISOString();
+      saveState();
+      return json(res, 200, { ok: true, votes: postScore(post) }, origin);
+    }
+
+    if (u.pathname === '/security/report' && req.method === 'POST') {
+      if (!rateOk('security-report:' + ip, 30, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      const flags = Array.isArray(b.flags) ? b.flags.slice(0, 10).map(x => String(x).slice(0, 64)) : [];
+      if (!flags.length) return json(res, 400, { ok: false, error: 'flags erforderlich' }, origin);
+      incident('integrity_report', `ip=${ip} flags=${flags.join(',')}`, 'warn');
+      return json(res, 200, { ok: true }, origin);
     }
 
     // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)

@@ -16,8 +16,8 @@
       if (window.Capacitor && window.Capacitor.Plugins) {
         const { StatusBar, App } = window.Capacitor.Plugins;
         if (StatusBar && StatusBar.setBackgroundColor) {
-          StatusBar.setBackgroundColor({ color: '#081225' }).catch(() => {});
-          StatusBar.setStyle({ style: 'DARK' }).catch(() => {});
+          StatusBar.setBackgroundColor({ color: '#0f0f0f' }).catch(() => {});
+          StatusBar.setStyle({ style: 'LIGHT' }).catch(() => {});
         }
         if (App && App.addListener) {
           App.addListener('backButton', () => {

@@ -4,7 +4,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>FabMargin 3D</title>
 <meta name="description" content="FabMargin 3D – sichere App für PrintProfit 3D.">
-<meta name="theme-color" content="#081225">
+<meta name="theme-color" content="#0f0f0f">
 <meta name="color-scheme" content="dark">
 <meta name="application-name" content="FabMargin 3D">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,46 +17,47 @@
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-apple.png">
 <style>
-:root{--bg:#081225;--panel:#101e38;--panel2:#152645;--text:#f5f7ff;--muted:#a9b8d4;--violet:#8c7bff;--violet2:#b6a4ff;--green:#45d483;--amber:#ffc35b;--red:#ff6b75;--line:#2a3c60;--shadow:0 14px 34px #0006}
+:root{--bg:#0f0f0f;--panel:#171717;--panel2:#202020;--text:#f6f6f6;--muted:#b7b7b7;--accent:#ff6b00;--accent-strong:#ff7f26;--accent-soft:#ffb580;--green:#45d483;--amber:#ffc35b;--red:#ff6b75;--line:#2f2f2f;--shadow:0 18px 45px #0008}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0;min-width:0;overflow-x:hidden}
-body{background:radial-gradient(1200px 700px at 15% -10%, #26205a 0%, transparent 60%), radial-gradient(900px 600px at 90% 10%, #17325a 0%, transparent 55%), linear-gradient(160deg,#071123,#0b1730 60%,#120f2f);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100dvh}
+body{background:radial-gradient(900px 540px at 20% -10%, #3f220f 0%, transparent 60%), radial-gradient(700px 480px at 100% 0%, #27160e 0%, transparent 52%), linear-gradient(180deg,#0f0f0f 0%,#141414 58%,#101010 100%);color:var(--text);font:15px/1.5 Inter,Roboto,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100dvh}
 button,input,select,textarea{font:inherit;color:var(--text)}
-button{border:0;border-radius:12px;padding:12px 16px;cursor:pointer;color:white;background:linear-gradient(135deg,#7a63ff,#a68bff);font-weight:700;box-shadow:0 6px 14px #0003}
-button.secondary{background:#223558;color:#e8edff}
-button.ghost{background:transparent;color:#cbd6ed;box-shadow:none;border:1px solid #2b3d63}
+button{border:0;border-radius:16px;padding:14px 18px;cursor:pointer;color:white;background:linear-gradient(135deg,var(--accent),var(--accent-strong));font-weight:800;box-shadow:0 10px 22px #0005}
+button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+button.secondary{background:#262626;color:#f2f2f2}
+button.ghost{background:transparent;color:#f3d2bd;box-shadow:none;border:1px solid #403028}
 button.danger{background:linear-gradient(135deg,#ff5f6b,#ff8790)}
 button.success{background:linear-gradient(135deg,#3bbf70,#65e79a)}
 button.tiny{padding:6px 10px;font-size:12px;border-radius:9px}
-input,select,textarea{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);background:#0c1930;outline:0}
+input,select,textarea{width:100%;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:#111;outline:0}
 header{padding:24px 16px 8px;max-width:640px;margin:auto;text-align:center}
 .brand{font-weight:900;font-size:24px;display:flex;align-items:center;justify-content:center;gap:10px}
 .brand img{width:44px;height:44px;border-radius:10px}
 .muted{color:var(--muted)}
 .small{font-size:12px}
-main{max-width:640px;margin:0 auto;padding:12px 16px 100px}
-.card{background:var(--panel);border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+main{max-width:720px;margin:0 auto;padding:12px 16px 110px}
+.card{background:linear-gradient(180deg,#1a1a1a 0%,#151515 100%);border-radius:24px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow);border:1px solid #242424}
 .card h2{margin:0 0 12px;font-size:18px}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:0}
 label{display:block;margin:12px 0 6px;color:var(--muted);font-size:13px}
-.lock-badge{display:inline-block;padding:4px 10px;border-radius:99px;background:#22345c;font-size:12px;color:#c9d3ee}
+.lock-badge{display:inline-block;padding:6px 12px;border-radius:99px;background:#2c2118;font-size:12px;color:#ffd6b8}
 .lock-badge.ok{background:#1e4d32;color:#a8e8bf}
 .hidden{display:none!important}
-.feature-tile{background:var(--panel2);border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;margin-bottom:10px;border:1px solid #223458}
+.feature-tile{background:linear-gradient(180deg,#222 0%,#1b1b1b 100%);border-radius:18px;padding:14px;display:flex;gap:12px;align-items:center;margin-bottom:10px;border:1px solid #2b2b2b}
 .feature-tile .icon{font-size:32px;width:52px;text-align:center}
 .feature-tile .body{flex:1;min-width:0}
 .feature-tile h3{margin:0 0 4px;font-size:15px}
 .feature-tile p{margin:0;color:var(--muted);font-size:12px}
-.feature-tile .price{font-weight:800;color:var(--violet2)}
-.feature-tile.owned{border-color:#2f6b45;background:#12332a}
-.step{background:#0e1c36;border-left:3px solid var(--violet);padding:12px;border-radius:8px;margin:8px 0}
+.feature-tile .price{font-weight:800;color:var(--accent-soft)}
+.feature-tile.owned{border-color:#6f4a22;background:#24180f}
+.step{background:#161616;border-left:3px solid var(--accent);padding:12px;border-radius:12px;margin:8px 0}
 .warn{background:#3a2415;border-left:3px solid var(--amber);padding:12px;border-radius:8px;margin:8px 0;color:#ffdbaa;font-size:13px}
-.pw-strength{height:6px;border-radius:99px;background:#1a2a48;margin-top:6px;overflow:hidden}
+.pw-strength{height:6px;border-radius:99px;background:#262626;margin-top:6px;overflow:hidden}
 .pw-strength>div{height:100%;transition:width .2s, background .2s;background:var(--red);width:0}
-nav.bottom{position:fixed;left:0;right:0;bottom:0;background:#0a1730cc;backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 6px calc(10px + env(safe-area-inset-bottom))}
-nav.bottom button{background:transparent;box-shadow:none;color:var(--muted);flex:1;padding:8px 4px;font-size:12px;font-weight:600}
-nav.bottom button.active{color:var(--violet2)}
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:#141414e8;backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:10px 6px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -10px 30px #0008}
+nav.bottom button{background:transparent;box-shadow:none;color:var(--muted);flex:1;padding:8px 4px;font-size:12px;font-weight:700;border-radius:14px}
+nav.bottom button.active{color:var(--accent-soft);background:#25170f}
 nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .center{text-align:center}
 .logo-tap{width:96px;height:96px;margin:20px auto;cursor:pointer;user-select:none}
@@ -64,9 +65,40 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .status-dot.ok{background:var(--green)}
 .status-dot.warn{background:var(--amber)}
 .status-dot.err{background:var(--red)}
+.top-actions{display:flex;justify-content:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.hero-card{padding:20px 18px;background:linear-gradient(135deg,#24170f 0%,#181818 65%,#1e1e1e 100%)}
+.hero-card h2{font-size:22px}
+.overlay{position:fixed;inset:0;background:#090909f2;z-index:1100;display:flex;align-items:center;justify-content:center;padding:20px}
+.overlay-card{width:min(100%,720px);max-height:100%;overflow:auto;background:linear-gradient(180deg,#171717 0%,#111 100%);border:1px solid #2b2b2b;border-radius:28px;padding:24px;box-shadow:0 24px 60px #000a}
+.overlay-card h2{margin-top:0;font-size:24px}
+.checkbox-row{display:flex;gap:12px;align-items:flex-start;margin:18px 0 20px}
+.checkbox-row input{width:22px;height:22px;flex:0 0 auto;margin-top:2px;accent-color:var(--accent)}
+.legal-text{white-space:pre-line;color:#e7e7e7}
+.app-splash{position:fixed;inset:0;z-index:1200;background:radial-gradient(500px 340px at 50% 20%, #5a2d10 0%, transparent 65%),linear-gradient(180deg,#0f0f0f 0%,#171717 100%);display:flex;align-items:center;justify-content:center;transition:opacity .3s ease,visibility .3s ease}
+.app-splash.hidden{opacity:0;visibility:hidden;display:flex!important}
+.splash-box{text-align:center;padding:28px}
+.splash-box img{width:96px;height:96px;border-radius:24px;box-shadow:0 18px 38px #0007}
+.splash-spinner{width:42px;height:42px;border-radius:50%;border:4px solid #3a2a20;border-top-color:var(--accent);margin:18px auto 0;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:600px){
+  header{padding-top:18px}
+  .brand{font-size:21px}
+  .card,.overlay-card{border-radius:22px}
+  button{width:100%}
+  .row>button,.row>.ghost,.row>.tiny{width:auto}
+  nav.bottom button,.top-actions button{width:auto}
+}
 </style>
 </head>
 <body>
+<div id="splashScreen" class="app-splash">
+  <div class="splash-box">
+    <img src="icon-192.png" alt="FabMargin 3D Logo">
+    <h1 style="margin:18px 0 6px;font-size:28px">FabMargin 3D</h1>
+    <p class="muted" style="margin:0">Wird gestartet…</p>
+    <div class="splash-spinner" aria-hidden="true"></div>
+  </div>
+</div>
 
 <!-- SCREEN 1: Master-Passwort einrichten (nur beim allerersten Start) -->
 <section id="screenSetup" class="hidden">
@@ -127,15 +159,22 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   <header>
     <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
     <span class="lock-badge ok">🔓 Tresor entsperrt</span>
+    <div class="top-actions">
+      <button class="ghost tiny" id="legalOpenBtn">Impressum & Haftung</button>
+    </div>
   </header>
   <main>
-    <div class="card">
+    <div class="card hero-card">
+      <h2>Willkommen bei FabMargin 3D</h2>
+      <p class="muted">Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.</p>
+    </div>
+    <div class="card" id="printerCard">
       <h2>🧩 Ihre Module</h2>
       <div id="ownedList"><p class="muted small">Noch keine Module freigeschaltet.</p></div>
     </div>
 
-    <div class="card">
-      <h2>💳 Credits</h2>
+    <div class="card" id="premiumCard">
+      <h2>💳 Premium-Credits</h2>
       <p class="muted small">Credits werden für Premium-Funktionen verwendet. Sie verfallen nie.</p>
       <div id="creditBalance" style="font-size:22px;font-weight:900;margin:10px 0">Guthaben: <span id="creditBalanceNum">0</span> Credits</div>
       <div id="creditFeatureList"></div>
@@ -166,9 +205,11 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     </div>
   </main>
   <nav class="bottom">
-    <button data-tab="home" class="active"><span class="ico">🏠</span>Start</button>
-    <button data-tab="store"><span class="ico">🛒</span>Store</button>
-    <button data-tab="admin"><span class="ico">⚙️</span>Admin</button>
+    <button data-tab="home" class="active"><span class="ico">🏠</span>Home</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">💎</span>Premium</button>
+    <button data-tab="admin"><span class="ico">🛠️</span>Admin</button>
+    <button data-tab="chat"><span class="ico">💬</span>Chat</button>
   </nav>
 </section>
 
@@ -221,7 +262,19 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <button class="danger tiny" id="wipeBtn">Alles löschen</button>
       </div>
     </div>
+    <div class="card">
+      <h2>📄 Impressum & Haftung</h2>
+      <p class="muted small">Der Haftungsausschluss kann jederzeit als eigene Seite geöffnet werden.</p>
+      <button class="ghost" id="adminLegalOpenBtn">Impressum öffnen</button>
+    </div>
   </main>
+  <nav class="bottom">
+    <button data-tab="home"><span class="ico">🏠</span>Home</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">💎</span>Premium</button>
+    <button data-tab="admin" class="active"><span class="ico">🛠️</span>Admin</button>
+    <button data-tab="chat"><span class="ico">💬</span>Chat</button>
+  </nav>
 </section>
 
 
@@ -246,18 +299,49 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
 </section>
 <section id="screenCommunity" class="hidden">
-  <header><div class="brand"><img src="icon-192.png" alt=""> Community</div>
+  <header><div class="brand"><img src="icon-192.png" alt=""> Chat & Community</div>
     <button class="ghost tiny" id="commBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button></header>
   <main>
-    <div class="card"><h2>💡 Neuer Vorschlag</h2>
+    <div class="card"><h2>💬 Neue Nachricht / Idee</h2>
       <label>Titel</label><input id="commTitle" maxlength="80">
       <label>Beschreibung</label><textarea id="commText" maxlength="500" style="min-height:80px"></textarea>
       <div style="margin-top:8px"><button id="commPostBtn">Vorschlag senden</button></div>
     </div>
-    <div class="card"><h2>🗳 Vorschläge & Abstimmung</h2>
+    <div class="card"><h2>🗳 Chatverlauf & Abstimmung</h2>
       <div id="commList"><p class="muted small">Lade…</p></div>
     </div>
   </main>
+  <nav class="bottom">
+    <button data-tab="home"><span class="ico">🏠</span>Home</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">💎</span>Premium</button>
+    <button data-tab="admin"><span class="ico">🛠️</span>Admin</button>
+    <button data-tab="chat" class="active"><span class="ico">💬</span>Chat</button>
+  </nav>
+</section>
+
+<section id="screenLegal" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> Impressum & Haftung</div>
+    <button class="ghost tiny" id="legalBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button>
+  </header>
+  <main>
+    <div class="card">
+      <h2>📄 Haftungsausschluss</h2>
+      <p class="legal-text">Diese App dient ausschließlich als Informations- und Orientierungshilfe. Alle Einstellungen, Empfehlungen und Profile sind unverbindliche Richtwerte. Der Entwickler übernimmt keinerlei Haftung für Schäden an Geräten, Druckern, Bauteilen oder sonstigen Gegenständen, die durch die Nutzung dieser App entstehen. Die Nutzung erfolgt auf eigene Verantwortung. Diese App ersetzt keine professionelle Beratung.</p>
+    </div>
+    <div class="card">
+      <h2>ℹ️ Impressum</h2>
+      <p class="muted small">Diese Seite bündelt den Haftungsausschluss der App in einer dauerhaft erreichbaren Ansicht.</p>
+    </div>
+  </main>
+  <nav class="bottom">
+    <button data-tab="home"><span class="ico">🏠</span>Home</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">💎</span>Premium</button>
+    <button data-tab="admin"><span class="ico">🛠️</span>Admin</button>
+    <button data-tab="chat"><span class="ico">💬</span>Chat</button>
+  </nav>
 </section>
 
 <script src="assets/crypto-vault.js"></script>
@@ -274,6 +358,18 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <div class="row">
       <button id="modalCancelBtn" class="ghost">Abbrechen</button>
     </div>
+  </div>
+</div>
+
+<div id="disclaimerOverlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+  <div class="overlay-card">
+    <h2 id="disclaimerTitle">⚖️ Haftungsausschluss</h2>
+    <p class="legal-text">Diese App dient ausschließlich als Informations- und Orientierungshilfe. Alle Einstellungen, Empfehlungen und Profile sind unverbindliche Richtwerte. Der Entwickler übernimmt keinerlei Haftung für Schäden an Geräten, Druckern, Bauteilen oder sonstigen Gegenständen, die durch die Nutzung dieser App entstehen. Die Nutzung erfolgt auf eigene Verantwortung. Diese App ersetzt keine professionelle Beratung.</p>
+    <label class="checkbox-row" for="disclaimerAccept">
+      <input id="disclaimerAccept" type="checkbox">
+      <span>Ich habe den Haftungsausschluss gelesen und akzeptiert</span>
+    </label>
+    <button id="disclaimerContinueBtn" disabled>Weiter</button>
   </div>
 </div>
 

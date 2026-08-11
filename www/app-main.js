@@ -1,10 +1,40 @@
 // FabMargin 3D – Haupt-App-Logik
 (function () {
   const $ = (id) => document.getElementById(id);
+  const SCREEN_IDS = ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin','screenUserLogin','screenCommunity','screenLegal'];
+  const DISCLAIMER_KEY = 'fabmargin_disclaimer_v1';
+  const SPLASH_DELAY_MS = 900;
+  let lastMainScreen = 'screenHome';
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin']
+    SCREEN_IDS
       .forEach(s => $(s).classList.toggle('hidden', s !== id));
+    if (['screenHome', 'screenAdmin', 'screenCommunity'].includes(id)) lastMainScreen = id;
     window.scrollTo(0,0);
+  };
+
+  const setActiveTab = (tab) => {
+    document.querySelectorAll('nav.bottom button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+  };
+
+  const scrollToBlock = (id) => {
+    const el = $(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openLegalScreen = () => {
+    show('screenLegal');
+    setActiveTab('');
+  };
+
+  const updateDisclaimerOverlay = () => {
+    const overlay = $('disclaimerOverlay');
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', localStorage.getItem(DISCLAIMER_KEY) === 'accepted');
+  };
+
+  const finishSplash = () => {
+    const splash = $('splashScreen');
+    if (splash) splash.classList.add('hidden');
   };
 
   let logoTapCount = 0;
@@ -35,9 +65,12 @@
     }
     wireEvents();
     checkBackend();
+    updateDisclaimerOverlay();
   }
 
   function wireEvents() {
+    if (wireEvents.done) return;
+    wireEvents.done = true;
     // Setup
     $('setupPw').addEventListener('input', e => {
       const s = pwStrength(e.target.value);
@@ -54,6 +87,7 @@
         if (hint) localStorage.setItem('fabmargin_hint', hint);
         sessionStorage.setItem('__mpw', pw);
         renderHome();
+        setActiveTab('home');
         show('screenHome');
       } catch (e) { alert('Fehler beim Erstellen: ' + e.message); }
     });
@@ -79,7 +113,7 @@
       logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
       if (logoTapCount >= 7) {
         logoTapCount = 0;
-        if (window.FabVault.isUnlocked()) show('screenAdmin');
+        if (window.FabVault.isUnlocked()) { setActiveTab('admin'); show('screenAdmin'); }
         else alert('Bitte zuerst die App entsperren.');
       }
     });
@@ -88,17 +122,22 @@
     document.querySelectorAll('nav.bottom button').forEach(b => {
       b.addEventListener('click', () => {
         const tab = b.dataset.tab;
-        document.querySelectorAll('nav.bottom button').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
+        setActiveTab(tab);
         if (tab === 'home') { renderHome(); show('screenHome'); }
-        else if (tab === 'store') { renderStore(); show('screenHome'); document.getElementById('storeList').scrollIntoView({behavior:'smooth'}); }
+        else if (tab === 'printers') { renderHome(); show('screenHome'); scrollToBlock('printerCard'); }
+        else if (tab === 'premium') { renderHome(); show('screenHome'); scrollToBlock('premiumCard'); }
         else if (tab === 'admin') show('screenAdmin');
+        else if (tab === 'chat') { show('screenCommunity'); window.__renderComm && window.__renderComm(); }
       });
     });
 
     // Feature zurück
-    $('featBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
-    $('adminBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
+    $('featBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('commBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('legalBackBtn').addEventListener('click', () => { setActiveTab(lastMainScreen === 'screenAdmin' ? 'admin' : lastMainScreen === 'screenCommunity' ? 'chat' : 'home'); show(lastMainScreen); });
+    $('legalOpenBtn').addEventListener('click', openLegalScreen);
+    $('adminLegalOpenBtn').addEventListener('click', openLegalScreen);
 
     // Backend & Werkzeuge
     $('saveBackendBtn').addEventListener('click', () => {
@@ -109,10 +148,11 @@
       checkBackend();
     });
     $('testBackendBtn').addEventListener('click', checkBackend);
-    $('setBackendBtn').addEventListener('click', () => show('screenAdmin'));
+    $('setBackendBtn').addEventListener('click', () => { setActiveTab('admin'); show('screenAdmin'); });
     $('lockNowBtn').addEventListener('click', () => {
       window.FabVault.lock();
       sessionStorage.removeItem('__mpw');
+      setActiveTab('home');
       show('screenLogin');
     });
     $('restoreBtn').addEventListener('click', async () => {
@@ -150,7 +190,18 @@
     // Auto-Lock-Event
     document.addEventListener('vault:locked', () => {
       sessionStorage.removeItem('__mpw');
+      setActiveTab('home');
       show('screenLogin');
+    });
+
+    $('disclaimerAccept').addEventListener('change', e => {
+      $('disclaimerContinueBtn').disabled = !e.target.checked;
+    });
+    $('disclaimerContinueBtn').addEventListener('click', () => {
+      localStorage.setItem(DISCLAIMER_KEY, 'accepted');
+      $('disclaimerAccept').checked = false;
+      $('disclaimerContinueBtn').disabled = true;
+      updateDisclaimerOverlay();
     });
     wireModalEvents();
   }
@@ -163,6 +214,7 @@
       sessionStorage.setItem('__mpw', pw);
       $('loginPw').value = '';
       renderHome();
+      setActiveTab('home');
       show('screenHome');
     } catch (e) {
       $('loginError').textContent = 'Falsches Passwort.';
@@ -313,7 +365,7 @@
         el.className = 'feature-tile owned';
         el.innerHTML = `<div class="icon">${f.icon}</div>
           <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-          <div style="text-align:right"><div class="price" style="color:#8ff0b3">${f.price}</div></div>`;
+          <div style="text-align:right"><div class="price" style="color:var(--green)">${f.price}</div></div>`;
         list.appendChild(el); return;
       }
       const el = document.createElement('div');
@@ -360,7 +412,7 @@
       ${content.sections ? content.sections.map(s => `
         <div class="step"><b>${s.title}</b><br><span class="small">${s.body}</span></div>
       `).join('') : ''}
-      ${content.demo ? `<div class="card" style="background:#0e1c36;margin-top:12px"><b>Demo</b><br><pre style="white-space:pre-wrap;font-size:12px">${content.demo}</pre></div>` : ''}
+      ${content.demo ? `<div class="card" style="background:#161616;margin-top:12px"><b>Demo</b><br><pre style="white-space:pre-wrap;font-size:12px">${content.demo}</pre></div>` : ''}
     `;
     $('featContent').innerHTML = html;
   }
@@ -385,7 +437,12 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      boot();
+      finishSplash();
+    }, SPLASH_DELAY_MS);
+  });
 })();
 
 // ------- Erweiterung v3: Kundenlogin & Community -------

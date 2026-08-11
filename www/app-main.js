@@ -255,42 +255,42 @@
     } catch (e) {
       $('featContent').innerHTML = `<p style="color:var(--red)">Fehler: ${e.message}</p>`;
     }
+  }
 
-    function renderPremiumCenter() {
-      $('featContent').innerHTML = `<div class="row" style="margin-bottom:10px">
-        <button class="tiny secondary" data-premium-tab="shop">Shop</button>
-        <button class="tiny secondary" data-premium-tab="check">Print Check</button>
-        <button class="tiny secondary" data-premium-tab="doctor">Print Doctor</button>
-        <button class="tiny secondary" data-premium-tab="profit">Profit Check</button>
-        <button class="tiny secondary" data-premium-tab="brain">Print Brain</button>
-      </div>
-      <div id="premiumTabContent" class="card" style="background:#0e1c36"></div>`;
-      const root = $('featContent');
-      root.onclick = onPremiumTabClick;
-      showPremiumTab('shop');
-    }
+  function renderPremiumCenter() {
+    $('featContent').innerHTML = `<div class="row" style="margin-bottom:10px">
+      <button class="tiny secondary" data-premium-tab="shop">Shop</button>
+      <button class="tiny secondary" data-premium-tab="check">Print Check</button>
+      <button class="tiny secondary" data-premium-tab="doctor">Print Doctor</button>
+      <button class="tiny secondary" data-premium-tab="profit">Profit Check</button>
+      <button class="tiny secondary" data-premium-tab="brain">Print Brain</button>
+    </div>
+    <div id="premiumTabContent" class="card" style="background:#0e1c36"></div>`;
+    const root = $('featContent');
+    root.onclick = onPremiumTabClick;
+    showPremiumTab('shop');
+  }
 
-    function onPremiumTabClick(e) {
-      const button = e.target.closest('[data-premium-tab]');
-      if (!button) return;
-      showPremiumTab(button.dataset.premiumTab);
-    }
+  function onPremiumTabClick(e) {
+    const button = e.target.closest('[data-premium-tab]');
+    if (!button) return;
+    showPremiumTab(button.dataset.premiumTab);
+  }
 
-    function showPremiumTab(tab) {
-      const host = document.getElementById('premiumTabContent');
-      if (!host) return;
-      const map = {
-        shop: window.PremiumShop,
-        check: window.PrintCheckFeature,
-        doctor: window.PrintDoctorFeature,
-        profit: window.ProfitCheckFeature,
-        brain: window.PrintBrainFeature
-      };
-      const feature = map[tab];
-      if (!feature) return;
-      host.innerHTML = feature.render();
-      feature.bind(host);
-    }
+  function showPremiumTab(tab) {
+    const host = document.getElementById('premiumTabContent');
+    if (!host) return;
+    const map = {
+      shop: window.PremiumShop,
+      check: window.PrintCheckFeature,
+      doctor: window.PrintDoctorFeature,
+      profit: window.ProfitCheckFeature,
+      brain: window.PrintBrainFeature
+    };
+    const feature = map[tab];
+    if (!feature) return;
+    host.innerHTML = feature.render();
+    feature.bind(host);
   }
 
   function renderFeatureContent(feature, content) {

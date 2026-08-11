@@ -15,6 +15,7 @@
       <p class="small muted">Einmalig 6,99 €. Lernt aus deinen eigenen Druckdaten und warnt bei ähnlichen Fehlschlägen.</p>
       <div class="row"><div><label>Drucker</label><input id="pbPrinter" placeholder="P1P"></div><div><label>Material</label><input id="pbMaterial" placeholder="JAYO PETG Grau"></div></div>
       <div class="row"><div><label>Düse</label><input id="pbNozzle" placeholder="0.4 mm"></div><div><label>Temperatur</label><input id="pbTemp" placeholder="245°C"></div></div>
+      <label>Rezeptname (optional)</label><input id="pbRecipeName" placeholder="Noch einmal so drucken">
       <label>Ergebnis</label><input id="pbResult" placeholder="sehr gut / Stringing / schlecht">
       <label>Hinweise</label><textarea id="pbNotes" style="min-height:70px"></textarea>
       <div class="row" style="margin-top:8px"><button class="tiny" id="pbSave">Erfahrung speichern</button><button class="tiny" id="pbSuggest">Vorschlag laden</button><button class="tiny" id="pbRecipe">Erfolgsrezept speichern</button></div>
@@ -49,7 +50,8 @@
       out.textContent = 'Speichere Erfolgsrezept…';
       try {
         const c = collect();
-        const r = await saveRecipe({ name: 'NOCH EINMAL SO DRUCKEN', printer: c.printer, filament: c.material, nozzle: c.nozzle, result: c.result, notes: c.notes, settings: `Temperatur ${c.temperature}` });
+        const name = (el.querySelector('#pbRecipeName').value || '').trim() || 'Noch einmal so drucken';
+        const r = await saveRecipe({ name, printer: c.printer, filament: c.material, nozzle: c.nozzle, result: c.result, notes: c.notes, settings: `Temperatur ${c.temperature}` });
         out.textContent = `Rezept gespeichert (${r.recipe.id}).`;
       } catch (e) { out.textContent = e.message; }
     };

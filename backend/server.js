@@ -91,10 +91,11 @@ const VERIFIED_PROFILES = [
   }
 ];
 
-function premiumUserId(req, payload = {}) {
-  const fromHeader = String(req.headers['x-premium-user'] || '').trim();
-  const fromBody = String(payload.userId || '').trim();
-  return fromHeader || fromBody || 'default-user';
+function premiumUserId(req) {
+  const ip = String(req.socket.remoteAddress || '');
+  const ua = String(req.headers['user-agent'] || '');
+  const raw = `${ip}|${ua}`;
+  return 'user_' + crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24);
 }
 function userCredits(userId) {
   if (!state.premium.creditsByUser[userId]) state.premium.creditsByUser[userId] = {};
@@ -265,17 +266,19 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/purchase' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       const product = PREMIUM_PRODUCTS.find(x => x.id === b.productId);
       if (!product) return json(res, 400, { ok: false, error: 'Unbekanntes Produkt' }, origin);
       const adminSecret = String(req.headers['x-security-secret'] || '');
-      const canGrant = !SECURITY_WEBHOOK_SECRET || safeEqual(adminSecret, SECURITY_WEBHOOK_SECRET);
-      if (!canGrant || !b.adminGrant) {
+      const canGrant = !!SECURITY_WEBHOOK_SECRET && safeEqual(adminSecret, SECURITY_WEBHOOK_SECRET);
+      if (!b.adminGrant || !canGrant) {
         return json(res, 200, {
           ok: true,
           pending: true,
           placeholderPayment: true,
-          message: 'Echte Zahlung wird später integriert. Aktuell vergibt das Admin-Panel Credits manuell.',
+          message: SECURITY_WEBHOOK_SECRET
+            ? 'Echte Zahlung wird später integriert. Credits werden per Admin-Panel mit Secret vergeben.'
+            : 'Echte Zahlung wird später integriert. Admin-Secret fehlt, daher nur Vormerkung ohne Credit-Vergabe.',
           requestedProduct: product.id
         }, origin);
       }
@@ -285,7 +288,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === '/premium/credits' && req.method === 'GET') {
-      const userId = premiumUserId(req, Object.fromEntries(u.searchParams.entries()));
+      const userId = premiumUserId(req);
       return json(res, 200, {
         ok: true,
         userId,
@@ -296,7 +299,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/use-credit' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       if (!b.creditType) return json(res, 400, { ok: false, error: 'creditType erforderlich' }, origin);
       const result = useCredit(userId, b.creditType, Number(b.amount || 1));
       if (!result.ok) return json(res, 402, result, origin);
@@ -306,7 +309,10 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/refund-credit' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
+      const adminSecret = String(req.headers['x-security-secret'] || '');
+      const canRefund = !!SECURITY_WEBHOOK_SECRET && safeEqual(adminSecret, SECURITY_WEBHOOK_SECRET);
+      if (!canRefund) return json(res, 403, { ok: false, error: 'Admin-Secret erforderlich' }, origin);
       if (!b.creditType) return json(res, 400, { ok: false, error: 'creditType erforderlich' }, origin);
       refundCredit(userId, b.creditType, Number(b.amount || 1));
       saveState();
@@ -315,7 +321,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/print-check' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       const compatibility = {
         compatible: true,
         summary: `${b.printer || 'Drucker'} + ${b.material || 'Material'} mit ${b.nozzle || 'Düse'} grundsätzlich kompatibel.`
@@ -356,7 +362,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/print-doctor' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       const issue = String(b.issue || '').toLowerCase();
       const causes = [
         { cause: 'Filamentfeuchtigkeit', why: 'Feuchtes Filament führt häufig zu Stringing und schlechter Oberfläche.', test: 'Filament 4-6h trocknen und nur diese Variable ändern.' },
@@ -395,14 +401,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === '/premium/profiles' && req.method === 'GET') {
-      const payload = Object.fromEntries(u.searchParams.entries());
-      const userId = premiumUserId(req, payload);
+      const userId = premiumUserId(req);
       const full = u.searchParams.get('full') === 'true';
       if (!full) {
         return json(res, 200, { ok: true, preview: true, profiles: VERIFIED_PROFILES }, origin);
       }
       const profileId = u.searchParams.get('profileId');
-      const profile = VERIFIED_PROFILES.find(p => p.profileId === profileId) || VERIFIED_PROFILES[0];
+      const profile = VERIFIED_PROFILES.find(p => p.profileId === profileId);
+      if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
       const debit = useCredit(userId, 'verified_profile', 1);
       if (!debit.ok) return json(res, 402, debit, origin);
       try {
@@ -425,7 +431,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/profit-check' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       const n = (v) => Number(v || 0);
       const totalCosts = n(b.materialCost) + n(b.electricityCost) + n(b.machineCost) + n(b.laborCost) + n(b.packagingCost) + n(b.feeCost) + n(b.scrapCost);
       const revenue = n(b.revenue);
@@ -439,7 +445,8 @@ const server = http.createServer(async (req, res) => {
       if (!debit.ok) return json(res, 402, debit, origin);
       try {
         if (b.forceError) throw new Error('Technischer Fehler bei Kalkulation');
-        let score = Math.round(Math.max(0, Math.min(100, 50 + (profit * 2) - (printHours * 0.4))));
+        const margin = revenue > 0 ? (profit / revenue) : 0;
+        let score = Math.round(Math.max(0, Math.min(100, (margin * 70) + Math.min(30, profitPerHour * 6))));
         if (profitPerHour < 1) score = Math.min(score, 40);
         const traffic = score >= 70 ? '🟢' : score >= 45 ? '🟡' : '🔴';
         const warning = profitPerHour < 1 ? 'Vorsicht: Gewinn pro Druckerstunde ist sehr niedrig.' : '';
@@ -457,7 +464,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/brain/save' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
       const brain = userBrain(userId);
       const entry = {
@@ -477,8 +484,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === '/premium/brain/suggest' && req.method === 'GET') {
-      const payload = Object.fromEntries(u.searchParams.entries());
-      const userId = premiumUserId(req, payload);
+      const userId = premiumUserId(req);
       if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
       const brain = userBrain(userId);
       const printer = String(u.searchParams.get('printer') || '').toLowerCase();
@@ -503,7 +509,7 @@ const server = http.createServer(async (req, res) => {
 
     if (u.pathname === '/premium/brain/recipe' && req.method === 'POST') {
       const b = await body(req);
-      const userId = premiumUserId(req, b);
+      const userId = premiumUserId(req);
       if (!requireBrainAccess(userId)) return json(res, 402, { ok: false, error: 'Personal Print Brain nicht freigeschaltet' }, origin);
       const brain = userBrain(userId);
       const recipe = {

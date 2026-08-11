@@ -152,6 +152,7 @@
       sessionStorage.removeItem('__mpw');
       show('screenLogin');
     });
+    wireModalEvents();
   }
 
   async function doLogin() {
@@ -170,6 +171,9 @@
 
   function renderHome() {
     renderOwned();
+    renderCreditBalance();
+    renderCreditFeatures();
+    renderCreditShop('creditShopList');
     renderStore();
   }
 
@@ -192,6 +196,111 @@
       el.querySelector('button').onclick = () => openFeature(f.id);
       list.appendChild(el);
     });
+  }
+
+  function renderCreditBalance() {
+    const bal = window.CreditManager ? window.CreditManager.getBalance() : 0;
+    const el = $('creditBalanceNum');
+    if (el) el.textContent = bal;
+  }
+
+  function renderCreditFeatures() {
+    const list = $('creditFeatureList');
+    if (!list || !window.CREDIT_FEATURES) return;
+    list.innerHTML = '';
+    const state = window.CreditManager ? window.CreditManager.getHistory() : [];
+    window.CREDIT_FEATURES.forEach(f => {
+      const unlocked = f.oneTime && state.some(h => h.type === 'use_feature' && h.featureId === f.id);
+      const el = document.createElement('div');
+      el.className = 'feature-tile';
+      el.innerHTML = `<div class="icon">${f.icon}</div>
+        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
+        <div style="text-align:right">
+          <div class="price" style="color:var(--amber)">${f.credits} Credit${f.credits > 1 ? 's' : ''}</div>
+          <button class="tiny" style="margin-top:6px">${unlocked ? '✓ Aktiv' : (f.oneTime ? 'Freischalten' : 'Nutzen')}</button>
+        </div>`;
+      el.querySelector('button').onclick = () => useCreditFeature(f);
+      list.appendChild(el);
+    });
+  }
+
+  async function useCreditFeature(f) {
+    const bal = window.CreditManager ? window.CreditManager.getBalance() : 0;
+    if (bal < f.credits) {
+      showNoCreditsModal();
+      return;
+    }
+    const ok = window.CreditManager.reserveCredits(f.credits);
+    if (!ok) { showNoCreditsModal(); return; }
+    try {
+      window.CreditManager.logFeatureUse(f.id, f.credits);
+      alert(`✅ ${f.icon} ${f.title} genutzt!\n${f.credits} Credit${f.credits > 1 ? 's' : ''} abgezogen.`);
+      renderCreditBalance();
+      renderCreditFeatures();
+    } catch (e) {
+      window.CreditManager.refundCredits(f.credits);
+      alert('❌ Fehler: ' + e.message + '\nCredits wurden zurückerstattet.');
+      renderCreditBalance();
+    }
+  }
+
+  function renderCreditShop(containerId) {
+    const list = $(containerId);
+    if (!list || !window.CreditManager) return;
+    list.innerHTML = '';
+    window.CreditManager.getPackages().forEach(pkg => {
+      const el = document.createElement('div');
+      el.className = 'feature-tile';
+      const bonusLine = pkg.bonus > 0
+        ? `<div style="color:var(--green);font-weight:700;font-size:13px">🎁 ${pkg.bonus} Credits geschenkt!</div>`
+        : '';
+      const buyLine = pkg.bonus > 0
+        ? `Kaufe ${pkg.bought} – bekomme <b>${pkg.total}</b>`
+        : `${pkg.total} Credits`;
+      el.innerHTML = `
+        <div class="icon" style="font-size:28px">💳</div>
+        <div class="body">
+          <h3>${pkg.label}</h3>
+          <p>${buyLine}</p>
+          ${bonusLine}
+        </div>
+        <div style="text-align:right;min-width:72px">
+          <div class="price">${pkg.price}</div>
+          <button class="tiny success" style="margin-top:6px">Kaufen</button>
+        </div>`;
+      el.querySelector('button').onclick = () => buyCreditPackage(pkg.id, containerId);
+      list.appendChild(el);
+    });
+  }
+
+  async function buyCreditPackage(packageId, containerId) {
+    try {
+      const added = await window.CreditManager.purchasePackage(packageId);
+      if (added > 0) {
+        alert(`✅ ${added} Credits erfolgreich aufgeladen!`);
+        renderCreditBalance();
+        renderCreditFeatures();
+        renderCreditShop(containerId);
+        if ($('modalNoCredits') && $('modalNoCredits').style.display !== 'none') {
+          renderCreditShop('modalCreditShopList');
+          $('modalNoCredits').style.display = 'none';
+        }
+      }
+    } catch (e) { alert('❌ Kauf fehlgeschlagen: ' + e.message); }
+  }
+
+  function showNoCreditsModal() {
+    const modal = $('modalNoCredits');
+    if (!modal) return;
+    renderCreditShop('modalCreditShopList');
+    modal.style.display = 'flex';
+  }
+
+  function wireModalEvents() {
+    const cancelBtn = $('modalCancelBtn');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { $('modalNoCredits').style.display = 'none'; });
+    const modal = $('modalNoCredits');
+    if (modal) modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
   }
 
   function renderStore() {

@@ -25,3 +25,12 @@ window.FEATURE_CATALOG = [
     price:'16,99 €', icon:'💎',
     unlocks:['feat_calc_pro','feat_material_db','feat_customer_mgr','feat_invoice','feat_analytics'] }
 ];
+
+// Premium-Funktionen die Credits verbrauchen (kein Einzel-Kauf nötig)
+window.CREDIT_FEATURES = [
+  { id:'cf_print_check',   title:'Print Check Pro',           icon:'🔍', credits:1, subtitle:'KI-gestützte Prüfung deines Drucks auf Fehlerquellen' },
+  { id:'cf_print_doctor',  title:'Print Doctor Pro',          icon:'🩺', credits:2, subtitle:'Diagnose & Lösungsvorschläge für Druckprobleme' },
+  { id:'cf_verified_profile', title:'Verified Print Profile', icon:'📄', credits:3, subtitle:'Zertifiziertes Druckerprofil für dein Gerät' },
+  { id:'cf_profit_check',  title:'Profit Check Pro',          icon:'💰', credits:1, subtitle:'Detaillierte Gewinn- und Kostenanalyse per Auftrag' },
+  { id:'cf_print_brain',   title:'Personal Print Brain',      icon:'🧠', credits:7, subtitle:'Freischalten (einmalig): KI-Assistent der mitdenkt', oneTime:true }
+];

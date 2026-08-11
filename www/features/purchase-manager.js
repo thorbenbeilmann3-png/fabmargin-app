@@ -1,6 +1,7 @@
-// FabMargin 3D – Purchase Manager
-// Verwaltet gekaufte Module. In-App-Käufe laufen via Google Play Billing
-// (Native-Bridge). Die Freischaltung wird zusätzlich serverseitig verifiziert.
+// FabMargin 3D – Purchase Manager (PrintProfit 3D Premium)
+// Unterstützt: onetime, consumable (Credit-basiert), pack, bundle.
+// In-App-Käufe laufen via Google Play Billing (Native-Bridge).
+// Freischaltung wird zusätzlich serverseitig verifiziert.
 (function (global) {
   const STORE_KEY = 'fabmargin_purchases_v1';
 
@@ -10,41 +11,102 @@
   }
   function saveLocal(state) { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
 
+  // Gibt zurück ob ein Feature dauerhaft freigeschaltet ist (onetime/bundle/pack-fully-consumed)
   function isOwned(featureId) {
-    if (featureId === 'feat_pro_base') return true; // Pro-Grundzugang durch App-Kauf enthalten
     const state = loadLocal();
+    // Direkt als onetime gekauft
     if (state[featureId] && state[featureId].verified) return true;
-    // Bundle-Freischaltung prüfen
-    if (state['feat_bundle_all'] && state['feat_bundle_all'].verified) {
-      const bundle = (window.FEATURE_CATALOG || []).find(f => f.id === 'feat_bundle_all');
-      if (bundle && bundle.unlocks && bundle.unlocks.includes(featureId)) return true;
+    // Durch ein Bundle oder Unlimited freigeschaltet
+    const catalog = window.FEATURE_CATALOG || [];
+    for (const item of catalog) {
+      if (item.unlocks && item.unlocks.includes(featureId)) {
+        if (state[item.id] && state[item.id].verified) return true;
+      }
     }
     return false;
   }
 
+  // Anzahl verbleibender Credits für ein consumable Feature
+  function creditsFor(featureId) {
+    if (isOwned(featureId)) return Infinity; // Unlimited durch onetime/bundle
+    const state = loadLocal();
+    return Number(state['credits:' + featureId] || 0);
+  }
+
+  // Verbraucht einen Credit; gibt false zurück wenn keiner verfügbar
+  function useCredit(featureId) {
+    if (isOwned(featureId)) return true; // Unlimited
+    const state = loadLocal();
+    const key = 'credits:' + featureId;
+    const current = Number(state[key] || 0);
+    if (current <= 0) return false;
+    state[key] = current - 1;
+    saveLocal(state);
+    return true;
+  }
+
+  // Storniert einen Credit-Verbrauch (bei technischem Fehler)
+  function refundCredit(featureId) {
+    if (isOwned(featureId)) return;
+    const state = loadLocal();
+    const key = 'credits:' + featureId;
+    state[key] = Number(state[key] || 0) + 1;
+    saveLocal(state);
+  }
+
   async function purchase(featureId) {
-    const feature = (window.FEATURE_CATALOG || []).find(f => f.id === featureId);
-    if (!feature) throw new Error('Unbekanntes Modul');
+    const catalog = window.FEATURE_CATALOG || [];
+    const feature = catalog.find(f => f.id === featureId);
+    if (!feature) throw new Error('Unbekanntes Produkt');
+
+    let purchaseToken = null;
+
     // Native Google Play Billing (falls in Android-App)
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleBilling) {
       const result = await window.Capacitor.Plugins.GoogleBilling.purchase({ sku: feature.sku });
       if (!result || !result.purchaseToken) throw new Error('Kauf abgebrochen');
-      // Server-Verifikation (Play Integrity + Play Developer API)
       const verify = await verifyOnServer(feature.sku, result.purchaseToken);
       if (!verify.ok) throw new Error(verify.error || 'Verifikation fehlgeschlagen');
-      const state = loadLocal();
-      state[featureId] = { verified: true, purchasedAt: new Date().toISOString(), sku: feature.sku };
-      saveLocal(state);
-      return true;
+      purchaseToken = result.purchaseToken;
+    } else {
+      // Fallback (Web-Vorschau)
+      if (!confirm(`[Nur Vorschau ohne Play Store]\n\n"${feature.title}" für ${feature.price} kaufen?\n\n${feature.priceNote || ''}`)) return false;
+      purchaseToken = 'dev_' + Date.now();
     }
-    // Fallback (Web-Vorschau): Dummy-Freischaltung zum Testen
-    if (confirm(`[Nur Vorschau ohne Play Store]\n\n"${feature.title}" für ${feature.price} freischalten?`)) {
-      const state = loadLocal();
-      state[featureId] = { verified: true, purchasedAt: new Date().toISOString(), sku: feature.sku, dev: true };
-      saveLocal(state);
-      return true;
+
+    const state = loadLocal();
+
+    if (feature.type === 'onetime' || feature.type === 'bundle') {
+      state[featureId] = { verified: true, purchasedAt: new Date().toISOString(), sku: feature.sku, token: purchaseToken };
+    } else if (feature.type === 'consumable') {
+      // 1 Credit addieren
+      const key = 'credits:' + featureId;
+      state[key] = Number(state[key] || 0) + 1;
+    } else if (feature.type === 'pack') {
+      // N Credits für das Ziel-Feature addieren
+      const targetKey = 'credits:' + (feature.creditsFor || featureId);
+      state[targetKey] = Number(state[targetKey] || 0) + (feature.credits || 1);
     }
-    return false;
+
+    // Bundle: Einzelne Features als freigeschaltet markieren
+    if (feature.type === 'bundle' && feature.unlocks) {
+      feature.unlocks.forEach(uid => {
+        const target = catalog.find(f => f.id === uid);
+        if (target && target.type === 'consumable') {
+          const key = 'credits:' + uid;
+          state[key] = Number(state[key] || 0) + 1;
+        }
+        // onetime-Features durch Bundle dauerhaft freischalten
+        if (target && target.type === 'onetime') {
+          if (!state[uid] || !state[uid].verified) {
+            state[uid] = { verified: true, purchasedAt: new Date().toISOString(), viaBundle: featureId };
+          }
+        }
+      });
+    }
+
+    saveLocal(state);
+    return true;
   }
 
   async function verifyOnServer(sku, token) {
@@ -63,7 +125,6 @@
   }
 
   function restore() {
-    // Fordert Google Play die Liste der bereits gekauften Produkte an.
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GoogleBilling) {
       return window.Capacitor.Plugins.GoogleBilling.queryPurchases();
     }
@@ -72,10 +133,11 @@
 
   function ownedList() {
     const state = loadLocal();
-    return Object.keys(state).filter(k => state[k].verified);
+    return Object.keys(state).filter(k => !k.startsWith('credits:') && state[k].verified);
   }
 
   function reset() { localStorage.removeItem(STORE_KEY); }
 
-  global.PurchaseManager = { isOwned, purchase, restore, ownedList, reset };
+  global.PurchaseManager = { isOwned, creditsFor, useCredit, refundCredit, purchase, restore, ownedList, reset };
 })(window);
+

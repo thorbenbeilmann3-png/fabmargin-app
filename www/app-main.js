@@ -175,48 +175,111 @@
 
   function renderOwned() {
     const list = $('ownedList');
-    const owned = window.PurchaseManager.ownedList();
-    if (!owned.length) {
-      list.innerHTML = '<p class="muted small">Noch keine Module freigeschaltet. Wählen Sie unten ein Modul aus.</p>';
-      return;
-    }
-    list.innerHTML = '';
-    owned.forEach(fid => {
-      const f = window.FEATURE_CATALOG.find(x => x.id === fid);
-      if (!f || f.id === 'feat_bundle_all') return;
+    const catalog = window.FEATURE_CATALOG || [];
+    const ownedIds = window.PurchaseManager.ownedList();
+    const lines = [];
+
+    catalog.forEach(f => {
+      if (f.type === 'bundle' || f.type === 'pack') return; // nicht einzeln anzeigen
+      const credits = window.PurchaseManager.creditsFor(f.id);
+      const owned = window.PurchaseManager.isOwned(f.id);
+      if (!owned && credits <= 0) return;
+      const creditLabel = (credits === Infinity) ? '∞' : (credits + ' Credit' + (credits !== 1 ? 's' : ''));
       const el = document.createElement('div');
       el.className = 'feature-tile owned';
       el.innerHTML = `<div class="icon">${f.icon}</div>
-        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
+        <div class="body"><h3>${f.title}</h3><p class="small muted">${owned ? 'Freigeschaltet' : creditLabel + ' verfügbar'}</p></div>
         <button class="tiny">Öffnen</button>`;
       el.querySelector('button').onclick = () => openFeature(f.id);
-      list.appendChild(el);
+      lines.push(el);
     });
+
+    if (!lines.length) {
+      list.innerHTML = '<p class="muted small">Noch keine Produkte freigeschaltet. Entdecke unten das Angebot.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    lines.forEach(el => list.appendChild(el));
   }
 
   function renderStore() {
     const list = $('storeList');
     list.innerHTML = '';
-    window.FEATURE_CATALOG.forEach(f => {
+    const catalog = window.FEATURE_CATALOG || [];
+
+    catalog.forEach(f => {
       const owned = window.PurchaseManager.isOwned(f.id);
-      if (f.included) {
-        const el = document.createElement('div');
-        el.className = 'feature-tile owned';
-        el.innerHTML = `<div class="icon">${f.icon}</div>
-          <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-          <div style="text-align:right"><div class="price" style="color:#8ff0b3">${f.price}</div></div>`;
-        list.appendChild(el); return;
-      }
+      const credits = window.PurchaseManager.creditsFor(f.id);
+
       const el = document.createElement('div');
-      el.className = 'feature-tile' + (owned ? ' owned' : '');
-      el.innerHTML = `<div class="icon">${f.icon}</div>
-        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-        <div style="text-align:right">
+      el.className = 'feature-tile' + (owned || credits > 0 ? ' owned' : '');
+
+      // Bundle-Karte
+      if (f.type === 'bundle') {
+        el.innerHTML = `
+          <div class="icon" style="font-size:28px">${f.icon}</div>
+          <div class="body">
+            <h3>${f.title}</h3>
+            <p class="small">${f.subtitle}</p>
+            ${f.includes ? '<p class="small muted" style="margin-top:4px">' + f.includes.join('<br>') + '</p>' : ''}
+            <p class="small" style="margin-top:6px"><s style="color:var(--muted)">${f.regularPrice}</s> &rarr; Du sparst <b>${f.savings}</b></p>
+            <p class="small muted">${f.priceNote || ''}</p>
+          </div>
+          <div style="text-align:right;min-width:80px">
+            <div class="price" style="font-size:18px">${f.price}</div>
+            <div class="small muted" style="margin-bottom:4px">kein Abo</div>
+            <button class="tiny" style="margin-top:6px">${owned ? '✓ Gekauft' : 'Einmalig kaufen'}</button>
+          </div>`;
+        if (!owned) el.querySelector('button').onclick = () => buyFeature(f.id);
+        list.appendChild(el);
+        return;
+      }
+
+      // Pack-Karte
+      if (f.type === 'pack') {
+        el.innerHTML = `
+          <div class="icon">${f.icon}</div>
+          <div class="body">
+            <h3>${f.title}</h3>
+            <p class="small">${f.subtitle}</p>
+            <p class="small muted">${f.priceNote || ''}</p>
+          </div>
+          <div style="text-align:right;min-width:80px">
+            <div class="price">${f.price}</div>
+            <button class="tiny" style="margin-top:6px">Kaufen</button>
+          </div>`;
+        el.querySelector('button').onclick = () => buyFeature(f.id);
+        list.appendChild(el);
+        return;
+      }
+
+      // Consumable- und Onetime-Karte
+      const hasUnlimited = owned;
+      const hasCredits = credits > 0 && !hasUnlimited;
+      const creditLabel = hasCredits ? credits + ' Credit' + (credits !== 1 ? 's' : '') + ' verfügbar' : '';
+      const statusLabel = hasUnlimited ? '✓ Freigeschaltet' : (hasCredits ? creditLabel : 'Kaufen');
+
+      let previewLine = f.preview ? `<p class="small" style="color:#8ff0b3;margin-top:4px">🆓 ${f.preview}</p>` : '';
+      let whatYouGet = f.whatYouGet ? '<p class="small muted" style="margin-top:4px">' + f.whatYouGet.join('<br>') + '</p>' : '';
+      let disclaimer = f.disclaimer ? `<p class="small muted" style="margin-top:4px;font-style:italic">${f.disclaimer}</p>` : '';
+
+      el.innerHTML = `
+        <div class="icon">${f.icon}</div>
+        <div class="body">
+          <h3>${f.title}</h3>
+          <p class="small">${f.subtitle}</p>
+          ${previewLine}
+          ${whatYouGet}
+          ${disclaimer}
+          <p class="small muted" style="margin-top:4px">${f.priceNote || ''}</p>
+        </div>
+        <div style="text-align:right;min-width:80px">
           <div class="price">${f.price}</div>
-          <button class="tiny" style="margin-top:6px">${owned ? '✓ Freigeschaltet' : 'Kaufen'}</button>
+          <button class="tiny" style="margin-top:6px">${statusLabel}</button>
         </div>`;
+
       el.querySelector('button').onclick = () => {
-        if (owned) return openFeature(f.id);
+        if (hasUnlimited) return openFeature(f.id);
         buyFeature(f.id);
       };
       list.appendChild(el);

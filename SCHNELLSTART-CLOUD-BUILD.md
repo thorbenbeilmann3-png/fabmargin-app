@@ -18,5 +18,6 @@
 
 ## Für Play Store: AAB signieren
 
-Anleitung siehe `docs/02-ANDROID-STUDIO.md` – dort wird der Signaturschlüssel erzeugt.
-Der Schlüssel bleibt zwingend bei Ihnen. Ohne ihn keine Updates möglich.
+Den Signaturschlüssel erzeugen Sie lokal in Android Studio bzw. über die
+Play Console/App Signing. Der Schlüssel bleibt zwingend bei Ihnen. Ohne ihn
+sind keine Updates möglich.

@@ -1,8 +1,21 @@
 {
-  "name": "fabmargin-security-backend",
-  "version": "2.0.0",
+  "name": "printprofit3d-backend",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=20" }
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "3.0.3",
+    "cors": "2.8.5",
+    "express": "5.2.1",
+    "jsonwebtoken": "9.0.3",
+    "pg": "8.23.0",
+    "zod": "4.4.3"
+  }
 }

@@ -1,325 +1,326 @@
-// FabMargin 3D – Haupt-App-Logik
-(function () {
+(() => {
   const $ = (id) => document.getElementById(id);
-  const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin']
-      .forEach(s => $(s).classList.toggle('hidden', s !== id));
-    window.scrollTo(0,0);
+  const state = { token: localStorage.getItem('pp3d_token') || '', user: null };
+
+  const calcFields = [
+    ['rollPrice', 'Rollenpreis'],
+    ['rollWeightGrams', 'Rollengewicht (g)'],
+    ['usedGrams', 'Verwendete Gramm'],
+    ['printHours', 'Druckzeit (h)'],
+    ['electricityPerKwh', 'Strompreis/kWh'],
+    ['powerWatts', 'Leistung (W)'],
+    ['packaging', 'Verpackung'],
+    ['shipping', 'Versand'],
+    ['additional', 'Zusatzkosten'],
+    ['platformFeePercent', 'Plattformgebühr %'],
+    ['targetProfit', 'Gewünschter Gewinn'],
+    ['targetMarginPercent', 'Gewünschte Marge %']
+  ];
+
+  function backend() {
+    return (localStorage.getItem('pp3d_backend') || '').replace(/\/$/, '');
+  }
+
+  function setMessage(el, text, ok = null) {
+    el.textContent = text;
+    el.className = `msg ${ok === null ? 'muted' : ok ? 'ok' : 'err'}`;
+  }
+
+  async function api(path, method = 'GET', body = null) {
+    const url = backend() + path;
+    if (!backend()) throw new Error('Backend URL fehlt');
+    const headers = { 'Content-Type': 'application/json' };
+    if (state.token) headers.Authorization = 'Bearer ' + state.token;
+    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : null });
+    const data = await res.json().catch(() => ({ ok: false, error: 'Ungültige Serverantwort' }));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Fehler');
+    return data;
+  }
+
+  function setupCalcForm() {
+    $('calcForm').innerHTML = calcFields.map(([k, l]) => `<input id="calc_${k}" type="number" step="0.01" placeholder="${l}">`).join('');
+  }
+
+  function currentSections() {
+    return ['dashboardSection','calcSection','filamentsSection','printersSection','projectsSection','salesSection','ideasSection','settingsSection'];
+  }
+
+  function showTab(tab) {
+    currentSections().forEach((id) => $(id).classList.add('hidden'));
+    if (tab === 'dashboard') $('dashboardSection').classList.remove('hidden');
+    if (tab === 'calc') $('calcSection').classList.remove('hidden');
+    if (tab === 'inventory') { $('filamentsSection').classList.remove('hidden'); $('printersSection').classList.remove('hidden'); $('projectsSection').classList.remove('hidden'); }
+    if (tab === 'sales') $('salesSection').classList.remove('hidden');
+    if (tab === 'ideas') $('ideasSection').classList.remove('hidden');
+    if (tab === 'settings') $('settingsSection').classList.remove('hidden');
+    document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
+  }
+
+  function authGuard() {
+    const loggedIn = !!state.token;
+    $('logoutBtn').classList.toggle('hidden', !loggedIn);
+    ['dashboardSection','calcSection','filamentsSection','printersSection','projectsSection','salesSection','ideasSection']
+      .forEach((id) => $(id).classList.toggle('hidden', !loggedIn));
+    if (!loggedIn) showTab('settings');
+  }
+
+  function asTable(items, columns, actions = '') {
+    if (!items.length) return '<p class="muted">Keine Einträge.</p>';
+    const head = columns.map((c) => `<th>${c.label}</th>`).join('') + (actions ? '<th>Aktion</th>' : '');
+    const rows = items.map((item) => `<tr>${columns.map((c) => `<td>${item[c.key] ?? ''}</td>`).join('')}${actions ? `<td>${actions.replaceAll('__ID__', item.id)}</td>` : ''}</tr>`).join('');
+    return `<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  async function loadDashboard() {
+    const { summary } = await api('/dashboard/summary');
+    $('summary').innerHTML = `
+      Umsatz: <b>${summary.revenue.toFixed(2)} €</b><br>
+      Kosten: <b>${summary.cost.toFixed(2)} €</b><br>
+      Gewinn: <b>${summary.profit.toFixed(2)} €</b><br>
+      Verkäufe: <b>${summary.salesCount}</b><br>
+      Offene Projekte: <b>${summary.openProjects}</b><br>
+      Filamentbestand: <b>${summary.filamentStockGrams.toFixed(2)} g</b>
+    `;
+  }
+
+  async function loadFilaments() {
+    const { items } = await api('/filaments');
+    $('filamentsTable').innerHTML = asTable(items, [
+      { key: 'manufacturer', label: 'Hersteller' },
+      { key: 'material', label: 'Material' },
+      { key: 'color', label: 'Farbe' },
+      { key: 'remainingWeight', label: 'Rest (g)' },
+      { key: 'remainingValue', label: 'Restwert €' }
+    ], '<button class="danger" onclick="window.__del(\'filaments\',\'__ID__\')">Löschen</button>');
+  }
+
+  async function loadPrinters() {
+    const { items } = await api('/printers');
+    $('printersTable').innerHTML = asTable(items, [
+      { key: 'manufacturer', label: 'Hersteller' },
+      { key: 'model', label: 'Modell' },
+      { key: 'build_volume', label: 'Bauraum' },
+      { key: 'powerWatts', label: 'Watt' }
+    ], '<button class="danger" onclick="window.__del(\'printers\',\'__ID__\')">Löschen</button>');
+  }
+
+  async function loadProjects() {
+    const { items } = await api('/projects');
+    $('projectsTable').innerHTML = asTable(items, [
+      { key: 'name', label: 'Projekt' },
+      { key: 'status', label: 'Status' },
+      { key: 'material', label: 'Material' },
+      { key: 'estimatedCost', label: 'Kosten' }
+    ], '<button class="danger" onclick="window.__del(\'projects\',\'__ID__\')">Löschen</button>');
+  }
+
+  async function loadSales() {
+    const { items } = await api('/sales');
+    $('salesTable').innerHTML = asTable(items, [
+      { key: 'product', label: 'Produkt' },
+      { key: 'quantity', label: 'Menge' },
+      { key: 'cost', label: 'Kosten' },
+      { key: 'salePrice', label: 'Preis' },
+      { key: 'profit', label: 'Gewinn' }
+    ], '<button class="danger" onclick="window.__del(\'sales\',\'__ID__\')">Löschen</button>');
+  }
+
+  async function loadIdeas() {
+    const { items } = await api('/ideas');
+    $('ideasList').innerHTML = items.length
+      ? items.map((i) => `<div class="card" style="background:#21314b"><b>${i.title}</b><br><span class="muted">${i.description}</span><br>Score: ${i.score} · Status: ${i.status}<div class="row" style="margin-top:6px"><button onclick="window.__vote('${i.id}',1)">👍</button><button class="alt" onclick="window.__vote('${i.id}',-1)">👎</button></div></div>`).join('')
+      : '<p class="muted">Noch keine Vorschläge.</p>';
+  }
+
+  async function refreshAll() {
+    if (!state.token) return;
+    await Promise.all([loadDashboard(), loadFilaments(), loadPrinters(), loadProjects(), loadSales(), loadIdeas()]);
+  }
+
+  async function login() {
+    const emailOrUsername = $('loginUser').value.trim();
+    const password = $('loginPass').value;
+    const data = await api('/auth/login', 'POST', { emailOrUsername, password });
+    state.token = data.token;
+    state.user = data.user;
+    localStorage.setItem('pp3d_token', state.token);
+    setMessage($('authMsg'), `Eingeloggt als ${state.user.username} (${state.user.role})`, true);
+    authGuard();
+    showTab('dashboard');
+    await refreshAll();
+  }
+
+  async function register() {
+    const email = $('regEmail').value.trim();
+    const username = $('regUsername').value.trim();
+    const password = $('regPassword').value;
+    const data = await api('/auth/register', 'POST', { email, username, password });
+    state.token = data.token;
+    state.user = data.user;
+    localStorage.setItem('pp3d_token', state.token);
+    setMessage($('authMsg'), `Registriert als ${state.user.username}`, true);
+    $('registerSection').classList.add('hidden');
+    authGuard();
+    await refreshAll();
+  }
+
+  async function forgot() {
+    const email = $('forgotEmail').value.trim();
+    const data = await api('/auth/forgot-password', 'POST', { email });
+    const tokenHint = data.resetToken ? ` Token (nur dev): ${data.resetToken}` : '';
+    setMessage($('authMsg'), `Reset angefordert.${tokenHint}`, true);
+  }
+
+  async function resetPassword() {
+    const token = $('resetToken').value.trim();
+    const newPassword = $('newPassword').value;
+    await api('/auth/reset-password', 'POST', { token, newPassword });
+    setMessage($('authMsg'), 'Passwort zurückgesetzt.', true);
+  }
+
+  function logout() {
+    state.token = '';
+    state.user = null;
+    localStorage.removeItem('pp3d_token');
+    setMessage($('authMsg'), 'Abgemeldet.', null);
+    authGuard();
+  }
+
+  async function saveBackend() {
+    const url = $('backendUrl').value.trim().replace(/\/$/, '');
+    if (url && !/^https?:\/\//i.test(url)) throw new Error('Ungültige URL');
+    localStorage.setItem('pp3d_backend', url);
+    setMessage($('settingsMsg'), 'Backend gespeichert.', true);
+  }
+
+  async function health() {
+    const r = await fetch(`${backend()}/health`);
+    const j = await r.json();
+    if (!j.ok) throw new Error('Backend fehlerhaft');
+    setMessage($('settingsMsg'), 'Backend erreichbar.', true);
+  }
+
+  async function calc() {
+    const payload = Object.fromEntries(calcFields.map(([key]) => [key, Number($(`calc_${key}`).value || 0)]));
+    const { result } = await api('/calculator/cost', 'POST', payload);
+    $('calcOut').innerHTML = `
+      Filament: ${result.filamentCost.toFixed(2)} €<br>
+      Strom: ${result.powerCost.toFixed(2)} €<br>
+      Sonstiges: ${result.extras.toFixed(2)} €<br>
+      Gesamtkosten: ${result.totalCost.toFixed(2)} €<br>
+      Verkaufspreis: ${result.suggestedSalePrice.toFixed(2)} €<br>
+      Gewinn: ${result.profit.toFixed(2)} €<br>
+      Marge: ${result.marginPercent.toFixed(2)} %
+    `;
+  }
+
+  async function createFilament() {
+    await api('/filaments', 'POST', {
+      manufacturer: $('fManufacturer').value.trim(),
+      material: $('fMaterial').value.trim(),
+      color: $('fColor').value.trim(),
+      spoolWeight: Number($('fSpool').value || 0),
+      remainingWeight: Number($('fRemaining').value || 0),
+      purchasePrice: Number($('fPrice').value || 0)
+    });
+    await loadFilaments();
+    await loadDashboard();
+  }
+
+  async function createPrinter() {
+    await api('/printers', 'POST', {
+      manufacturer: $('pManufacturer').value.trim(),
+      model: $('pModel').value.trim(),
+      buildVolume: $('pVolume').value.trim(),
+      powerWatts: Number($('pPower').value || 0)
+    });
+    await loadPrinters();
+  }
+
+  async function createProject() {
+    await api('/projects', 'POST', {
+      name: $('prName').value.trim(),
+      material: $('prMaterial').value.trim(),
+      status: $('prStatus').value,
+      estimatedCost: Number($('prCost').value || 0)
+    });
+    await loadProjects();
+    await loadDashboard();
+  }
+
+  async function createSale() {
+    await api('/sales', 'POST', {
+      product: $('sProduct').value.trim(),
+      quantity: Number($('sQuantity').value || 1),
+      cost: Number($('sCost').value || 0),
+      salePrice: Number($('sPrice').value || 0),
+      platform: $('sPlatform').value.trim()
+    });
+    await loadSales();
+    await loadDashboard();
+  }
+
+  async function createIdea() {
+    await api('/ideas', 'POST', {
+      title: $('ideaTitle').value.trim(),
+      description: $('ideaDescription').value.trim()
+    });
+    $('ideaTitle').value = '';
+    $('ideaDescription').value = '';
+    await loadIdeas();
+  }
+
+  window.__vote = async (id, vote) => {
+    try { await api(`/ideas/${id}/vote`, 'POST', { vote }); await loadIdeas(); }
+    catch (e) { alert(e.message); }
   };
 
-  let logoTapCount = 0;
-  let logoTapTimer = null;
-
-  function pwStrength(pw) {
-    let s = 0;
-    if (pw.length >= 12) s += 25;
-    if (pw.length >= 16) s += 15;
-    if (/[A-Z]/.test(pw)) s += 15;
-    if (/[a-z]/.test(pw)) s += 10;
-    if (/[0-9]/.test(pw)) s += 15;
-    if (/[^A-Za-z0-9]/.test(pw)) s += 20;
-    return Math.min(100, s);
-  }
-
-  function boot() {
-    // Backend-URL im Feld vorbelegen
-    const be = localStorage.getItem('fabmargin_backend_url') || '';
-    if ($('adminBackend')) $('adminBackend').value = be;
-
-    if (!window.FabVault.hasVault()) {
-      show('screenSetup');
-    } else {
-      show('screenLogin');
-      const hint = localStorage.getItem('fabmargin_hint') || '';
-      if (hint) $('hintLine').textContent = 'Hinweis: ' + hint;
-    }
-    wireEvents();
-    checkBackend();
-  }
-
-  function wireEvents() {
-    // Setup
-    $('setupPw').addEventListener('input', e => {
-      const s = pwStrength(e.target.value);
-      $('pwBar').style.width = s + '%';
-      $('pwBar').style.background = s < 40 ? '#ff6b75' : s < 70 ? '#ffc35b' : '#45d483';
-    });
-    $('setupCreateBtn').addEventListener('click', async () => {
-      const pw = $('setupPw').value, pw2 = $('setupPw2').value, hint = $('setupHint').value.trim();
-      if (pw.length < 12) return alert('Passwort muss mindestens 12 Zeichen haben.');
-      if (pw !== pw2) return alert('Die Passwörter stimmen nicht überein.');
-      if (pwStrength(pw) < 60) if (!confirm('Das Passwort ist schwach. Trotzdem verwenden?')) return;
-      try {
-        await window.FabVault.createVault(pw);
-        if (hint) localStorage.setItem('fabmargin_hint', hint);
-        sessionStorage.setItem('__mpw', pw);
-        renderHome();
-        show('screenHome');
-      } catch (e) { alert('Fehler beim Erstellen: ' + e.message); }
-    });
-
-    // Login
-    $('loginBtn').addEventListener('click', doLogin);
-    $('loginPw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-    $('resetVaultBtn').addEventListener('click', () => {
-      if (confirm('ALLE Daten in der App werden gelöscht. Sicher?')) {
-        if (confirm('Wirklich sicher? Es gibt kein Zurück.')) {
-          window.FabVault.destroyVault();
-          localStorage.removeItem('fabmargin_hint');
-          localStorage.removeItem('fabmargin_purchases_v1');
-          location.reload();
-        }
-      }
-    });
-
-    // Logo-Tap für Admin
-    $('logoTap').addEventListener('click', () => {
-      logoTapCount++;
-      clearTimeout(logoTapTimer);
-      logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
-      if (logoTapCount >= 7) {
-        logoTapCount = 0;
-        if (window.FabVault.isUnlocked()) show('screenAdmin');
-        else alert('Bitte zuerst die App entsperren.');
-      }
-    });
-
-    // Bottom-Nav
-    document.querySelectorAll('nav.bottom button').forEach(b => {
-      b.addEventListener('click', () => {
-        const tab = b.dataset.tab;
-        document.querySelectorAll('nav.bottom button').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        if (tab === 'home') { renderHome(); show('screenHome'); }
-        else if (tab === 'store') { renderStore(); show('screenHome'); document.getElementById('storeList').scrollIntoView({behavior:'smooth'}); }
-        else if (tab === 'admin') show('screenAdmin');
-      });
-    });
-
-    // Feature zurück
-    $('featBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
-    $('adminBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
-
-    // Backend & Werkzeuge
-    $('saveBackendBtn').addEventListener('click', () => {
-      const url = ($('adminBackend').value || '').trim().replace(/\/$/,'');
-      if (url && !/^https:\/\//i.test(url)) return alert('Nur HTTPS erlaubt.');
-      localStorage.setItem('fabmargin_backend_url', url);
-      $('adminBackendStatus').textContent = 'Gespeichert.';
-      checkBackend();
-    });
-    $('testBackendBtn').addEventListener('click', checkBackend);
-    $('setBackendBtn').addEventListener('click', () => show('screenAdmin'));
-    $('lockNowBtn').addEventListener('click', () => {
-      window.FabVault.lock();
-      sessionStorage.removeItem('__mpw');
-      show('screenLogin');
-    });
-    $('restoreBtn').addEventListener('click', async () => {
-      try { await window.PurchaseManager.restore(); alert('Käufe abgefragt.'); renderHome(); }
-      catch (e) { alert('Fehler: ' + e.message); }
-    });
-
-    // Passwort ändern
-    $('changePwBtn').addEventListener('click', async () => {
-      const o = $('oldPw').value, n1 = $('newPw1').value, n2 = $('newPw2').value;
-      if (n1.length < 12) return $('changePwStatus').textContent = 'Neues Passwort zu kurz.';
-      if (n1 !== n2) return $('changePwStatus').textContent = 'Neue Passwörter stimmen nicht überein.';
-      try {
-        await window.FabVault.changePassword(o, n1);
-        sessionStorage.setItem('__mpw', n1);
-        $('changePwStatus').textContent = '✅ Passwort geändert.';
-        $('oldPw').value = $('newPw1').value = $('newPw2').value = '';
-      } catch (e) { $('changePwStatus').textContent = '❌ ' + e.message; }
-    });
-
-    // Export & Wipe
-    $('exportVaultBtn').addEventListener('click', () => {
-      const blob = new Blob([localStorage.getItem('fabmargin_vault_v1') || '{}'], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'fabmargin-vault-backup.json';
-      a.click();
-    });
-    $('wipeBtn').addEventListener('click', () => {
-      if (!confirm('ALLES löschen (Tresor + Käufe + Einstellungen)?')) return;
-      if (!confirm('Wirklich? Kein Zurück!')) return;
-      localStorage.clear(); sessionStorage.clear(); location.reload();
-    });
-
-    // Auto-Lock-Event
-    document.addEventListener('vault:locked', () => {
-      sessionStorage.removeItem('__mpw');
-      show('screenLogin');
-    });
-  }
-
-  async function doLogin() {
-    const pw = $('loginPw').value;
-    $('loginError').textContent = '';
+  window.__del = async (name, id) => {
+    if (!confirm('Wirklich löschen?')) return;
     try {
-      await window.FabVault.unlock(pw);
-      sessionStorage.setItem('__mpw', pw);
-      $('loginPw').value = '';
-      renderHome();
-      show('screenHome');
+      await api(`/${name}/${id}`, 'DELETE');
+      await refreshAll();
     } catch (e) {
-      $('loginError').textContent = 'Falsches Passwort.';
+      alert(e.message);
     }
-  }
+  };
 
-  function renderHome() {
-    renderOwned();
-    renderStore();
-  }
+  function bind() {
+    setupCalcForm();
+    $('backendUrl').value = localStorage.getItem('pp3d_backend') || '';
 
-  function renderOwned() {
-    const list = $('ownedList');
-    const owned = window.PurchaseManager.ownedList();
-    if (!owned.length) {
-      list.innerHTML = '<p class="muted small">Noch keine Module freigeschaltet. Wählen Sie unten ein Modul aus.</p>';
-      return;
-    }
-    list.innerHTML = '';
-    owned.forEach(fid => {
-      const f = window.FEATURE_CATALOG.find(x => x.id === fid);
-      if (!f || f.id === 'feat_bundle_all') return;
-      const el = document.createElement('div');
-      el.className = 'feature-tile owned';
-      el.innerHTML = `<div class="icon">${f.icon}</div>
-        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-        <button class="tiny">Öffnen</button>`;
-      el.querySelector('button').onclick = () => openFeature(f.id);
-      list.appendChild(el);
+    $('loginBtn').onclick = () => login().catch((e) => setMessage($('authMsg'), e.message, false));
+    $('showRegisterBtn').onclick = () => $('registerSection').classList.toggle('hidden');
+    $('showForgotBtn').onclick = () => $('forgotSection').classList.toggle('hidden');
+    $('registerBtn').onclick = () => register().catch((e) => setMessage($('authMsg'), e.message, false));
+    $('forgotBtn').onclick = () => forgot().catch((e) => setMessage($('authMsg'), e.message, false));
+    $('resetBtn').onclick = () => resetPassword().catch((e) => setMessage($('authMsg'), e.message, false));
+    $('logoutBtn').onclick = logout;
+
+    $('saveBackendBtn').onclick = () => saveBackend().catch((e) => setMessage($('settingsMsg'), e.message, false));
+    $('healthBtn').onclick = () => health().catch((e) => setMessage($('settingsMsg'), e.message, false));
+
+    $('calcBtn').onclick = () => calc().catch((e) => setMessage($('calcOut'), e.message, false));
+    $('addFilamentBtn').onclick = () => createFilament().catch((e) => alert(e.message));
+    $('addPrinterBtn').onclick = () => createPrinter().catch((e) => alert(e.message));
+    $('addProjectBtn').onclick = () => createProject().catch((e) => alert(e.message));
+    $('addSaleBtn').onclick = () => createSale().catch((e) => alert(e.message));
+    $('addIdeaBtn').onclick = () => createIdea().catch((e) => alert(e.message));
+
+    document.querySelectorAll('nav button').forEach((btn) => {
+      btn.onclick = () => showTab(btn.dataset.tab);
     });
-  }
 
-  function renderStore() {
-    const list = $('storeList');
-    list.innerHTML = '';
-    window.FEATURE_CATALOG.forEach(f => {
-      const owned = window.PurchaseManager.isOwned(f.id);
-      if (f.included) {
-        const el = document.createElement('div');
-        el.className = 'feature-tile owned';
-        el.innerHTML = `<div class="icon">${f.icon}</div>
-          <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-          <div style="text-align:right"><div class="price" style="color:#8ff0b3">${f.price}</div></div>`;
-        list.appendChild(el); return;
-      }
-      const el = document.createElement('div');
-      el.className = 'feature-tile' + (owned ? ' owned' : '');
-      el.innerHTML = `<div class="icon">${f.icon}</div>
-        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-        <div style="text-align:right">
-          <div class="price">${f.price}</div>
-          <button class="tiny" style="margin-top:6px">${owned ? '✓ Freigeschaltet' : 'Kaufen'}</button>
-        </div>`;
-      el.querySelector('button').onclick = () => {
-        if (owned) return openFeature(f.id);
-        buyFeature(f.id);
-      };
-      list.appendChild(el);
-    });
-  }
-
-  async function buyFeature(fid) {
-    try {
-      const ok = await window.PurchaseManager.purchase(fid);
-      if (ok) { alert('✅ Kauf erfolgreich!'); renderHome(); }
-    } catch (e) { alert('❌ Kauf fehlgeschlagen: ' + e.message); }
-  }
-
-  async function openFeature(fid) {
-    const f = window.FEATURE_CATALOG.find(x => x.id === fid);
-    if (!f) return;
-    $('featTitle').textContent = f.icon + ' ' + f.title;
-    $('featContent').innerHTML = '<p class="muted">Entschlüssele Inhalt…</p>';
-    show('screenFeature');
-    try {
-      const content = await window.ContentLoader.openFeature(fid);
-      renderFeatureContent(f, content);
-    } catch (e) {
-      $('featContent').innerHTML = `<p style="color:var(--red)">Fehler: ${e.message}</p>`;
+    authGuard();
+    if (state.token) {
+      api('/me').then((d) => {
+        state.user = d.user;
+        setMessage($('authMsg'), `Eingeloggt als ${d.user.username} (${d.user.role})`, true);
+        authGuard();
+        return refreshAll();
+      }).catch(() => logout());
     }
   }
 
-  function renderFeatureContent(feature, content) {
-    const html = `
-      <h2>${feature.icon} ${feature.title}</h2>
-      <p class="muted">${content.description || feature.subtitle}</p>
-      ${content.sections ? content.sections.map(s => `
-        <div class="step"><b>${s.title}</b><br><span class="small">${s.body}</span></div>
-      `).join('') : ''}
-      ${content.demo ? `<div class="card" style="background:#0e1c36;margin-top:12px"><b>Demo</b><br><pre style="white-space:pre-wrap;font-size:12px">${content.demo}</pre></div>` : ''}
-    `;
-    $('featContent').innerHTML = html;
-  }
-
-  async function checkBackend() {
-    const url = localStorage.getItem('fabmargin_backend_url') || '';
-    if (!url) {
-      if ($('beStatus')) $('beStatus').textContent = 'nicht eingestellt';
-      if ($('beDot')) $('beDot').className = 'status-dot warn';
-      return;
-    }
-    try {
-      const r = await fetch(url + '/health', { cache: 'no-store' });
-      const j = await r.json();
-      if ($('beStatus')) $('beStatus').textContent = j.ok ? 'verbunden' : 'Fehler';
-      if ($('beDot')) $('beDot').className = 'status-dot ' + (j.ok ? 'ok' : 'err');
-      if ($('adminBackendStatus')) $('adminBackendStatus').textContent = j.ok ? '✅ Verbindung erfolgreich.' : '❌ Backend meldet Fehler.';
-    } catch (e) {
-      if ($('beStatus')) $('beStatus').textContent = 'nicht erreichbar';
-      if ($('beDot')) $('beDot').className = 'status-dot err';
-      if ($('adminBackendStatus')) $('adminBackendStatus').textContent = '❌ Nicht erreichbar: ' + e.message;
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', boot);
-})();
-
-// ------- Erweiterung v3: Kundenlogin & Community -------
-(function(){
-  const $=id=>document.getElementById(id);
-  document.addEventListener('DOMContentLoaded',()=>{
-    if($('uActivateSwitch')) $('uActivateSwitch').onclick=()=>$('uActivateBox').classList.toggle('hidden');
-    if($('uLoginBtn')) $('uLoginBtn').onclick=async()=>{
-      $('uLoginErr').textContent='';
-      try{await window.UserAuth.login($('uLoginUser').value.trim(),$('uLoginPw').value);
-        document.getElementById('screenUserLogin').classList.add('hidden');
-        document.getElementById('screenHome').classList.remove('hidden');
-      }catch(e){$('uLoginErr').textContent=e.message;}
-    };
-    if($('uActivateBtn')) $('uActivateBtn').onclick=async()=>{
-      $('uActErr').textContent='';
-      try{await window.UserAuth.activate($('uCode').value.trim(),$('uNewUser').value.trim(),$('uNewPw').value,$('uEmail').value.trim());
-        document.getElementById('screenUserLogin').classList.add('hidden');
-        document.getElementById('screenHome').classList.remove('hidden');
-      }catch(e){$('uActErr').textContent=e.message;}
-    };
-    if($('commBackBtn')) $('commBackBtn').onclick=()=>{document.getElementById('screenCommunity').classList.add('hidden');document.getElementById('screenHome').classList.remove('hidden');};
-    if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
-      const t=$('commTitle').value.trim(),x=$('commText').value.trim();
-      if(!t||!x) return alert('Titel und Text erforderlich');
-      const r=await window.Community.post(t,x);
-      if(r.ok){$('commTitle').value='';$('commText').value='';renderComm();}
-      else alert(r.error||'Fehler');
-    };
-    // Integrity-Check beim Start
-    window.Integrity&&window.Integrity.check().then(r=>{
-      if(!r.ok) console.warn('Integritäts-Warnung:',r.flags);
-    });
-  });
-  async function renderComm(){
-    const el=document.getElementById('commList'); if(!el) return;
-    try{const r=await window.Community.list();
-      if(!r.ok||!r.items||!r.items.length){el.innerHTML='<p class="muted small">Noch keine Vorschläge.</p>';return;}
-      el.innerHTML=r.items.map(i=>`<div class="feature-tile"><div class="icon">💡</div>
-        <div class="body"><h3>${i.title}</h3><p>${i.text}</p><p class="small muted">${i.votes||0} Stimmen · ${i.author||'Anonym'}</p></div>
-        <div><button class="tiny" onclick="Community.vote('${i.id}',1).then(()=>location.reload())">👍</button>
-        <button class="tiny ghost" onclick="Community.vote('${i.id}',-1).then(()=>location.reload())">👎</button></div></div>`).join('');
-    }catch(e){el.innerHTML='<p class="small" style="color:var(--red)">Fehler: '+e.message+'</p>';}
-  }
-  window.__renderComm=renderComm;
+  document.addEventListener('DOMContentLoaded', bind);
 })();

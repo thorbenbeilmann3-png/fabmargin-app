@@ -72,3 +72,16 @@ im Backend – nicht im „Verstecken" des Codes.
 6. In-App-Produkte in Play Console anlegen (siehe `docs/05-IN-APP-KAEUFE.md`).
 
 Ich helfe an jedem Schritt weiter – sagen Sie einfach, wo Sie stehen.
+
+
+## ✅ Aktueller Entwicklungsstand (MVP)
+
+Diese Repository-Version enthält jetzt eine lauffähige PrintProfit3D-MVP-App mit:
+
+- sicherem Backend (Node.js + PostgreSQL, JWT, Rollenprüfung)
+- Registrierung, Login, Passwort-Reset
+- Kostenrechner
+- Filament-, Drucker-, Projekt- und Verkaufsverwaltung
+- Ideenbereich mit Upvote/Downvote (eine aktive Stimme pro Nutzer)
+
+Backend-Startanleitung: `/home/runner/work/fabmargin-app/fabmargin-app/backend/README-v3.md`

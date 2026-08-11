@@ -2,10 +2,16 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin']
+    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity']
       .forEach(s => $(s).classList.toggle('hidden', s !== id));
     window.scrollTo(0,0);
   };
+
+  function setActiveTab(tab) {
+    document.querySelectorAll('nav.bottom button').forEach(button => {
+      button.classList.toggle('active', button.dataset.tab === tab);
+    });
+  }
 
   let logoTapCount = 0;
   let logoTapTimer = null;
@@ -54,6 +60,7 @@
         if (hint) localStorage.setItem('fabmargin_hint', hint);
         sessionStorage.setItem('__mpw', pw);
         renderHome();
+        setActiveTab('home');
         show('screenHome');
       } catch (e) { alert('Fehler beim Erstellen: ' + e.message); }
     });
@@ -88,17 +95,32 @@
     document.querySelectorAll('nav.bottom button').forEach(b => {
       b.addEventListener('click', () => {
         const tab = b.dataset.tab;
-        document.querySelectorAll('nav.bottom button').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        if (tab === 'home') { renderHome(); show('screenHome'); }
-        else if (tab === 'store') { renderStore(); show('screenHome'); document.getElementById('storeList').scrollIntoView({behavior:'smooth'}); }
+        setActiveTab(tab);
+        if (tab === 'home') {
+          renderHome();
+          show('screenHome');
+        }
+        else if (tab === 'printers') {
+          if (window.PrinterProfiles) window.PrinterProfiles.render();
+          show('screenPrinters');
+        }
+        else if (tab === 'premium') {
+          renderHome();
+          show('screenHome');
+          const premiumPanel = document.getElementById('premiumPanel');
+          if (premiumPanel) premiumPanel.scrollIntoView({behavior:'smooth'});
+        }
         else if (tab === 'admin') show('screenAdmin');
+        else if (tab === 'chat') {
+          if (window.__renderComm) window.__renderComm();
+          show('screenCommunity');
+        }
       });
     });
 
     // Feature zurück
-    $('featBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
-    $('adminBackBtn').addEventListener('click', () => { renderHome(); show('screenHome'); });
+    $('featBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
 
     // Backend & Werkzeuge
     $('saveBackendBtn').addEventListener('click', () => {
@@ -163,6 +185,7 @@
       sessionStorage.setItem('__mpw', pw);
       $('loginPw').value = '';
       renderHome();
+      setActiveTab('home');
       show('screenHome');
     } catch (e) {
       $('loginError').textContent = 'Falsches Passwort.';
@@ -407,7 +430,14 @@
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uActErr').textContent=e.message;}
     };
-    if($('commBackBtn')) $('commBackBtn').onclick=()=>{document.getElementById('screenCommunity').classList.add('hidden');document.getElementById('screenHome').classList.remove('hidden');};
+    if($('commBackBtn')) $('commBackBtn').onclick=()=>{
+      renderHome();
+      document.querySelectorAll('nav.bottom button').forEach(button => {
+        button.classList.toggle('active', button.dataset.tab === 'home');
+      });
+      document.getElementById('screenCommunity').classList.add('hidden');
+      document.getElementById('screenHome').classList.remove('hidden');
+    };
     if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
       const t=$('commTitle').value.trim(),x=$('commText').value.trim();
       if(!t||!x) return alert('Titel und Text erforderlich');

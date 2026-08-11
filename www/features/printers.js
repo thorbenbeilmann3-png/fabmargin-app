@@ -30,7 +30,7 @@
   }
 
   function buildConfigText(printer) {
-    return [
+    const lines = [
       `; FabMargin Profil – ${printer.manufacturer} ${printer.model}`,
       `; ${DISCLAIMER}`,
       `[printer]`,
@@ -52,10 +52,14 @@
       `bed_temp=${printer.pro.bed}`,
       `print_speed=${printer.pro.speed}`,
       `layer_height=${printer.pro.layer}`,
-      `retraction=${printer.pro.retraction}`,
-      printer.notes ? '' : null,
-      printer.notes ? `[notes]\ntext=${printer.notes}` : null
-    ].filter(Boolean).join('\n');
+      `retraction=${printer.pro.retraction}`
+    ];
+
+    if (printer.notes) {
+      lines.push('', '[notes]', `text=${printer.notes}`);
+    }
+
+    return lines.join('\n');
   }
 
   const DEFAULT_PRINTERS = [
@@ -234,12 +238,13 @@
 
   function renderManufacturerOptions(printers, select) {
     const currentValue = select.value;
+    const manufacturers = uniqueManufacturers(printers);
     const options = ['<option value="">Alle Hersteller</option>']
-      .concat(uniqueManufacturers(printers).map(manufacturer => (
+      .concat(manufacturers.map(manufacturer => (
         `<option value="${escapeHtml(manufacturer)}">${escapeHtml(manufacturer)}</option>`
       )));
     select.innerHTML = options.join('');
-    select.value = uniqueManufacturers(printers).includes(currentValue) ? currentValue : '';
+    select.value = manufacturers.includes(currentValue) ? currentValue : '';
   }
 
   function renderSettingBlock(title, settings) {
@@ -301,23 +306,21 @@
     } catch (error) {
       console.warn('Clipboard fehlgeschlagen:', error);
     }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = printer.configText;
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand('copy');
-    textarea.remove();
-    alert(`Konfiguration für ${printer.manufacturer} ${printer.model} kopiert.`);
+    alert(`Automatisches Kopieren wird auf diesem Gerät nicht unterstützt. Bitte den Text im Profil von ${printer.manufacturer} ${printer.model} manuell kopieren.`);
   }
 
   function saveConfig(printer) {
     const blob = new Blob([printer.configText], { type: 'text/plain;charset=utf-8' });
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
     link.download = `${slugify(`${printer.manufacturer}-${printer.model}`)}.${printer.configFormat}`;
+    document.body.appendChild(link);
     link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    setTimeout(() => {
+      URL.revokeObjectURL(objectUrl);
+      link.remove();
+    }, 1000);
   }
 
   function mailConfig(printer) {
@@ -325,7 +328,13 @@
     const body = encodeURIComponent(
       `${printer.manufacturer} ${printer.model}\n\n${DISCLAIMER}\n\n${printer.configText}`
     );
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    const link = document.createElement('a');
+    link.href = `mailto:?subject=${subject}&body=${body}`;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   function deleteCustomPrinter(id) {
@@ -354,53 +363,45 @@
     const manufacturer = form.customManufacturer.value.trim();
     const model = form.customModel.value.trim();
     const software = form.customSoftware.value.trim();
+    const buildVolume = form.customBuildVolume.value.trim() || 'Benutzerdefiniert';
+    const nozzle = form.customNozzle.value.trim() || '0,4 mm';
     const notes = form.customNotes.value.trim();
     const configText = form.customConfig.value.trim();
+    const stable = {
+      temperature: form.stableTemp.value.trim(),
+      bed: form.stableBed.value.trim(),
+      speed: form.stableSpeed.value.trim(),
+      layer: form.stableLayer.value.trim(),
+      retraction: form.stableRetraction.value.trim()
+    };
+    const pro = {
+      temperature: form.proTemp.value.trim(),
+      bed: form.proBed.value.trim(),
+      speed: form.proSpeed.value.trim(),
+      layer: form.proLayer.value.trim(),
+      retraction: form.proRetraction.value.trim()
+    };
 
     const customPrinter = createPrinter(
       manufacturer,
       model,
       software,
+      stable,
+      pro,
       {
-        temperature: form.stableTemp.value.trim(),
-        bed: form.stableBed.value.trim(),
-        speed: form.stableSpeed.value.trim(),
-        layer: form.stableLayer.value.trim(),
-        retraction: form.stableRetraction.value.trim()
-      },
-      {
-        temperature: form.proTemp.value.trim(),
-        bed: form.proBed.value.trim(),
-        speed: form.proSpeed.value.trim(),
-        layer: form.proLayer.value.trim(),
-        retraction: form.proRetraction.value.trim()
-      },
-      {
-        id: `${slugify(`${manufacturer}-${model}`)}-${Date.now()}`,
-        buildVolume: form.customBuildVolume.value.trim() || 'Benutzerdefiniert',
-        nozzle: form.customNozzle.value.trim() || '0,4 mm',
+        id: `custom-${slugify(`${manufacturer}-${model}`)}-${Date.now()}`,
+        buildVolume,
+        nozzle,
         notes,
         configText: configText || buildConfigText({
           manufacturer,
           model,
           software,
-          buildVolume: form.customBuildVolume.value.trim() || 'Benutzerdefiniert',
-          nozzle: form.customNozzle.value.trim() || '0,4 mm',
+          buildVolume,
+          nozzle,
           notes,
-          stable: {
-            temperature: form.stableTemp.value.trim(),
-            bed: form.stableBed.value.trim(),
-            speed: form.stableSpeed.value.trim(),
-            layer: form.stableLayer.value.trim(),
-            retraction: form.stableRetraction.value.trim()
-          },
-          pro: {
-            temperature: form.proTemp.value.trim(),
-            bed: form.proBed.value.trim(),
-            speed: form.proSpeed.value.trim(),
-            layer: form.proLayer.value.trim(),
-            retraction: form.proRetraction.value.trim()
-          }
+          stable,
+          pro
         }),
         custom: true
       }

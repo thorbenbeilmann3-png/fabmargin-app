@@ -101,8 +101,14 @@
           show('screenHome');
         }
         else if (tab === 'printers') {
-          if (window.PrinterProfiles) window.PrinterProfiles.render();
           show('screenPrinters');
+          if (window.PrinterProfiles) window.PrinterProfiles.render();
+          else {
+            const list = document.getElementById('printerProfileList');
+            if (list) {
+              list.innerHTML = '<div class="card"><p class="muted">Die Drucker-Profile konnten gerade nicht geladen werden. Bitte App neu starten.</p></div>';
+            }
+          }
         }
         else if (tab === 'premium') {
           renderHome();
@@ -432,11 +438,8 @@
     };
     if($('commBackBtn')) $('commBackBtn').onclick=()=>{
       renderHome();
-      document.querySelectorAll('nav.bottom button').forEach(button => {
-        button.classList.toggle('active', button.dataset.tab === 'home');
-      });
-      document.getElementById('screenCommunity').classList.add('hidden');
-      document.getElementById('screenHome').classList.remove('hidden');
+      setActiveTab('home');
+      show('screenHome');
     };
     if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
       const t=$('commTitle').value.trim(),x=$('commText').value.trim();

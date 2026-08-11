@@ -135,6 +135,19 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     </div>
 
     <div class="card">
+      <h2>💳 Credits</h2>
+      <p class="muted small">Credits werden für Premium-Funktionen verwendet. Sie verfallen nie.</p>
+      <div id="creditBalance" style="font-size:22px;font-weight:900;margin:10px 0">Guthaben: <span id="creditBalanceNum">0</span> Credits</div>
+      <div id="creditFeatureList"></div>
+    </div>
+
+    <div class="card">
+      <h2>🛒 Credits kaufen</h2>
+      <p class="muted small">Je mehr du kaufst, desto mehr bekommst du geschenkt!</p>
+      <div id="creditShopList"></div>
+    </div>
+
+    <div class="card">
       <h2>🛒 Verfügbare Module</h2>
       <p class="muted small">Kaufen Sie einzelne Bausteine je nach Bedarf. Kauf über Google Play, sicher und mit Käuferschutz.</p>
       <div id="storeList"></div>
@@ -250,7 +263,20 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 <script src="assets/crypto-vault.js"></script>
 <script src="features/catalog.js"></script>
 <script src="features/purchase-manager.js"></script>
+<script src="features/credit-manager.js"></script>
 <script src="features/content-loader.js"></script>
+<!-- Modal: Keine Credits -->
+<div id="modalNoCredits" style="display:none;position:fixed;inset:0;z-index:999;background:#000a;align-items:flex-end;justify-content:center">
+  <div style="background:var(--panel);border-radius:24px 24px 0 0;padding:28px 20px 40px;width:100%;max-width:640px">
+    <h2 style="margin:0 0 8px;font-size:20px">⚠️ Du hast keine Credits mehr.</h2>
+    <p class="muted small" style="margin-bottom:16px">Lade dein Guthaben auf, um diese Funktion zu nutzen.</p>
+    <div id="modalCreditShopList" style="margin-bottom:16px"></div>
+    <div class="row">
+      <button id="modalCancelBtn" class="ghost">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <script src="features/user-auth.js"></script>
 <script src="features/community.js"></script>
 <script src="features/integrity.js"></script>

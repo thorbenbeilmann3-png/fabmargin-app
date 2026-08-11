@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FabMargin 3D</string>
+    <string name="title_activity_main">FabMargin 3D</string>
+    <string name="package_name">com.printprofit3d.fabmargin</string>
+    <string name="custom_url_scheme">com.printprofit3d.fabmargin</string>
+</resources>

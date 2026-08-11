@@ -21,8 +21,17 @@
     set({username,token:j.token,loggedInAt:new Date().toISOString()});
     return j;
   }
+  async function me(){
+    const be=localStorage.getItem('fabmargin_backend_url')||'';
+    const u=get();
+    if(!u||!u.token) throw new Error('Nicht eingeloggt');
+    const r=await fetch(be+'/user/me',{headers:{Authorization:'Bearer '+u.token}});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'Profil laden fehlgeschlagen');
+    return j;
+  }
   function logout(){clear()}
   function current(){return get()}
   function isLoggedIn(){return !!(get()&&get().token)}
-  g.UserAuth={activate,login,logout,current,isLoggedIn};
+  g.UserAuth={activate,login,logout,current,isLoggedIn,me};
 })(window);

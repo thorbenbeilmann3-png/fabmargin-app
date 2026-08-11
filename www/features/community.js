@@ -9,7 +9,8 @@
     return r.json();
   }
   const list=()=>api('/community/list');
-  const post=(title,text)=>api('/community/post','POST',{title,text});
+  const post=(title,text,force=false)=>api('/community/post','POST',{title,text,force});
   const vote=(id,dir)=>api('/community/vote','POST',{id,dir});
-  g.Community={list,post,vote};
+  const report=(ideaId,reason)=>api('/community/report','POST',{ideaId,reason});
+  g.Community={list,post,vote,report};
 })(window);

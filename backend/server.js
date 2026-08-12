@@ -333,6 +333,7 @@ const server = http.createServer(async (req, res) => {
       const bj = await body(req);
       const token = bj.token || u.searchParams.get('token') || '';
       if (!token) return json(res, 400, { ok: false, error: 'token erforderlich' }, origin);
+      if (!Object.prototype.hasOwnProperty.call(state.betaInvites || {}, token)) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);
       const invite = state.betaInvites[token];
       if (!invite) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);
       if (invite.revoked) return json(res, 403, { ok: false, error: 'Diese Einladung wurde widerrufen' }, origin);
@@ -351,6 +352,8 @@ const server = http.createServer(async (req, res) => {
       const bi = await body(req);
       const instanceId = bi.instanceId || '';
       if (!instanceId) return json(res, 400, { ok: false, error: 'instanceId erforderlich' }, origin);
+      // Validate instanceId format to prevent prototype pollution
+      if (!/^[0-9a-f-]{8,64}$/i.test(instanceId)) return json(res, 400, { ok: false, error: 'Ungültige instanceId' }, origin);
       if (!state.instances) state.instances = {};
       const inst = state.instances[instanceId] || { ips: [] };
       if (inst.blockedAt) return json(res, 200, { ok: false, blocked: true, reason: inst.blockReason || 'Zu viele Geräte' }, origin);

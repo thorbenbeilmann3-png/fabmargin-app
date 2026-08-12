@@ -49,6 +49,9 @@ let state = loadState();
 function saveState() { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, DATA_FILE); }
 if (!fs.existsSync(DATA_FILE)) saveState();
 if (!state.purchases) { state.purchases = {}; saveState(); }
+if (!state.users) { state.users = {}; saveState(); }            // username -> {email, passwordHash, salt, activatedAt, blocked}
+if (!state.activationCodes) { state.activationCodes = {}; saveState(); } // code -> {createdAt, usedBy, usedAt}
+if (!state.community) { state.community = []; saveState(); }    // [{id, title, text, author, votes, status, createdAt}]
 if (!state.supportMessages) { state.supportMessages = []; saveState(); }
 
 function incident(type, detail, severity = 'info') {
@@ -164,10 +167,10 @@ const server = http.createServer(async (req, res) => {
     // Support-Chat: Nachricht speichern
     if (u.pathname === '/support/message' && req.method === 'POST') {
       if (!rateOk('support:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
-      const b = await body(req);
-      if (!b.text || typeof b.text !== 'string' || !b.text.trim()) return json(res, 400, { ok: false, error: 'text erforderlich' }, origin);
+      const b2 = await body(req);
+      if (!b2.text || typeof b2.text !== 'string' || !b2.text.trim()) return json(res, 400, { ok: false, error: 'text erforderlich' }, origin);
       if (!state.supportMessages) state.supportMessages = [];
-      state.supportMessages.unshift({ id: crypto.randomUUID(), text: b.text.trim().slice(0, 500), ts: b.ts || new Date().toISOString(), ip });
+      state.supportMessages.unshift({ id: crypto.randomUUID(), text: b2.text.trim().slice(0, 500), ts: b2.ts || new Date().toISOString(), ip });
       state.supportMessages = state.supportMessages.slice(0, 500);
       saveState();
       return json(res, 200, { ok: true }, origin);
@@ -178,7 +181,151 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, messages: state.supportMessages || [] }, origin);
     }
 
-    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
+    // ---------- Geschützte Admin-Endpunkte ----------
+
+    if (u.pathname.startsWith('/admin/') && u.pathname !== '/admin/login') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+    }
+
+    // Dashboard
+    if (u.pathname === '/admin/dashboard' && req.method === 'GET') {
+      return json(res, 200, {
+        ok: true,
+        users: Object.keys(state.users || {}).length,
+        blockedUsers: Object.values(state.users || {}).filter(u => u.blocked).length,
+        activationCodes: Object.keys(state.activationCodes || {}).length,
+        unusedCodes: Object.values(state.activationCodes || {}).filter(c => !c.usedBy).length,
+        communityTotal: (state.community || []).length,
+        communityPending: (state.community || []).filter(x => x.status === 'pending').length,
+        purchasesPaused: state.security.purchasesPaused,
+        pauseReason: state.security.pauseReason,
+        failedLogins: state.security.failedLogins,
+        incidents: state.security.incidents.length
+      }, origin);
+    }
+
+    // Aktivierungscode generieren
+    if (u.pathname === '/admin/generate-code' && req.method === 'POST') {
+      const segments = () => b64(crypto.randomBytes(3)).replace(/[^A-Z0-9]/g, x => String(x.charCodeAt(0) % 10)).toUpperCase().slice(0, 4);
+      let code;
+      do { code = [segments(), segments(), segments()].join('-'); } while (state.activationCodes[code]);
+      state.activationCodes[code] = { createdAt: new Date().toISOString(), usedBy: null, usedAt: null };
+      saveState();
+      incident('admin_generate_code', 'code=' + code, 'info');
+      return json(res, 200, { ok: true, code }, origin);
+    }
+
+    // Nutzer-Liste
+    if (u.pathname === '/admin/users' && req.method === 'GET') {
+      const list = Object.entries(state.users || {}).map(([username, d]) => ({
+        username, email: d.email, activatedAt: d.activatedAt, blocked: !!d.blocked, blockedAt: d.blockedAt || null
+      }));
+      return json(res, 200, { ok: true, users: list }, origin);
+    }
+
+    // Nutzer sperren
+    const blockMatch = u.pathname.match(/^\/admin\/users\/([^/]+)\/(block|unblock)$/);
+    if (blockMatch && req.method === 'POST') {
+      const username = decodeURIComponent(blockMatch[1]);
+      const action = blockMatch[2];
+      if (!state.users[username]) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      state.users[username].blocked = action === 'block';
+      if (action === 'block') state.users[username].blockedAt = new Date().toISOString();
+      else delete state.users[username].blockedAt;
+      saveState();
+      incident('admin_user_' + action, 'user=' + username, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Sicherheits-Log
+    if (u.pathname === '/admin/security-log' && req.method === 'GET') {
+      return json(res, 200, { ok: true, incidents: state.security.incidents }, origin);
+    }
+
+    // Passwort ändern
+    if (u.pathname === '/admin/change-password' && req.method === 'POST') {
+      const bp = await body(req);
+      if (!bp.newPassword || bp.newPassword.length < 12) return json(res, 400, { ok: false, error: 'Mindestens 12 Zeichen' }, origin);
+      const newSalt = b64(crypto.randomBytes(16));
+      state.admin.salt = newSalt;
+      state.admin.passwordHash = hashPassword(bp.newPassword, newSalt);
+      state.admin.updatedAt = new Date().toISOString();
+      saveState();
+      incident('admin_password_changed', 'ip=' + ip, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Käufe pausieren / fortsetzen
+    if (u.pathname === '/admin/pause-purchases' && req.method === 'POST') {
+      const bpp = await body(req);
+      state.security.purchasesPaused = true;
+      state.security.pauseReason = bpp.reason || 'Manuell pausiert';
+      saveState();
+      incident('admin_pause_purchases', state.security.pauseReason, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+    if (u.pathname === '/admin/resume-purchases' && req.method === 'POST') {
+      state.security.purchasesPaused = false;
+      state.security.pauseReason = '';
+      saveState();
+      incident('admin_resume_purchases', '', 'info');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Community-Liste (Admin-Sicht: alle inkl. pending)
+    if (u.pathname === '/admin/community' && req.method === 'GET') {
+      return json(res, 200, { ok: true, proposals: state.community || [] }, origin);
+    }
+
+    // Community-Vorschlag annehmen / ablehnen
+    const commMatch = u.pathname.match(/^\/admin\/community\/([^/]+)\/(approve|reject)$/);
+    if (commMatch && req.method === 'POST') {
+      const id = commMatch[1];
+      const action = commMatch[2];
+      const idx = (state.community || []).findIndex(x => x.id === id);
+      if (idx === -1) return json(res, 404, { ok: false, error: 'Vorschlag nicht gefunden' }, origin);
+      state.community[idx].status = action === 'approve' ? 'approved' : 'rejected';
+      state.community[idx].moderatedAt = new Date().toISOString();
+      saveState();
+      incident('admin_community_' + action, 'id=' + id, 'info');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Aktivierungscodes-Liste
+    if (u.pathname === '/admin/codes' && req.method === 'GET') {
+      const list = Object.entries(state.activationCodes || {}).map(([code, d]) => ({ code, ...d }));
+      return json(res, 200, { ok: true, codes: list }, origin);
+    }
+
+    // Daten-Export
+    if (u.pathname === '/admin/export' && req.method === 'GET') {
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        users: state.users,
+        activationCodes: state.activationCodes,
+        community: state.community,
+        security: { incidents: state.security.incidents, failedLogins: state.security.failedLogins, purchasesPaused: state.security.purchasesPaused }
+      };
+      incident('admin_export', 'ip=' + ip, 'warn');
+      const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="fabmargin-export.json"', 'Cache-Control': 'no-store' };
+      if (origin) headers['Access-Control-Allow-Origin'] = origin;
+      res.writeHead(200, headers);
+      return res.end(JSON.stringify(exportData, null, 2));
+    }
+
+    // Daten-Wipe (nur Nutzer + Codes + Community, nicht Admin-Creds)
+    if (u.pathname === '/admin/wipe' && req.method === 'POST') {
+      state.users = {};
+      state.activationCodes = {};
+      state.community = [];
+      state.security.incidents = [];
+      state.security.failedLogins = 0;
+      saveState();
+      incident('admin_wipe', 'ip=' + ip, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen) (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
 
     return json(res, 404, { ok: false, error: 'Nicht gefunden' }, origin);
   } catch (e) {

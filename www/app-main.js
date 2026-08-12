@@ -15,6 +15,7 @@
 
   let logoTapCount = 0;
   let logoTapTimer = null;
+  let adminToken = null; // JWT-Session-Token nach Admin-Login
 
   function pwStrength(pw) {
     let s = 0;
@@ -79,15 +80,14 @@
       }
     });
 
-    // Logo-Tap für Admin
+    // Logo-Tap für Admin (7× öffnet Admin-Bildschirm auch ohne Login)
     $('logoTap').addEventListener('click', () => {
       logoTapCount++;
       clearTimeout(logoTapTimer);
       logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
       if (logoTapCount >= 7) {
         logoTapCount = 0;
-        if (window.FabVault.isUnlocked()) show('screenAdmin');
-        else alert('Bitte zuerst die App entsperren.');
+        showAdminScreen();
       }
     });
 
@@ -116,7 +116,7 @@
           const premiumPanel = document.getElementById('premiumPanel');
           if (premiumPanel) premiumPanel.scrollIntoView({behavior:'smooth'});
         }
-        else if (tab === 'admin') show('screenAdmin');
+        else if (tab === 'admin') showAdminScreen();
         else if (tab === 'chat') {
           if (window.__renderComm) window.__renderComm();
           if (window.__renderSupportChat) window.__renderSupportChat();
@@ -176,12 +176,283 @@
       localStorage.clear(); sessionStorage.clear(); location.reload();
     });
 
+    // Feature zurück
+    $('featBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+
+    // Admin-Login
+    $('adminLoginBtn').addEventListener('click', adminLogin);
+    $('adminLoginPw').addEventListener('keydown', e => { if (e.key === 'Enter') adminLogin(); });
+
+    // Admin-Dashboard Buttons
+    $('adminRefreshBtn').addEventListener('click', adminLoadDashboard);
+    $('adminLogoutBtn').addEventListener('click', () => {
+      adminToken = null;
+      $('adminDashboard').classList.add('hidden');
+      $('adminLoginBox').classList.remove('hidden');
+      $('adminLoginUser').value = '';
+      $('adminLoginPw').value = '';
+      $('adminLoginErr').textContent = '';
+    });
+    $('adminPauseBtn').addEventListener('click', async () => {
+      const reason = prompt('Grund für Pause (optional):') || 'Manuell pausiert';
+      await adminPost('/admin/pause-purchases', { reason });
+      adminLoadDashboard();
+    });
+    $('adminResumeBtn').addEventListener('click', async () => {
+      await adminPost('/admin/resume-purchases', {});
+      adminLoadDashboard();
+    });
+    $('adminGenCodeBtn').addEventListener('click', async () => {
+      const data = await adminPost('/admin/generate-code', {});
+      if (data && data.ok) {
+        $('adminGeneratedCode').textContent = '✅ ' + data.code;
+        navigator.clipboard && navigator.clipboard.writeText(data.code).catch(()=>{});
+      }
+    });
+    $('adminLoadCodesBtn').addEventListener('click', adminLoadCodes);
+    $('adminLoadUsersBtn').addEventListener('click', adminLoadUsers);
+    $('adminLoadCommBtn').addEventListener('click', adminLoadCommunity);
+    $('adminLoadLogBtn').addEventListener('click', adminLoadSecLog);
+    $('adminExportBtn').addEventListener('click', adminExport);
+    $('adminWipeBtn').addEventListener('click', async () => {
+      if (!confirm('Server-Daten wirklich löschen? (Nutzer, Codes, Community)')) return;
+      if (!confirm('Letzter Schritt – wirklich?')) return;
+      await adminPost('/admin/wipe', {});
+      alert('Server-Daten gelöscht.');
+      adminLoadDashboard();
+    });
+
+    // Backend & Werkzeuge
+    $('saveBackendBtn').addEventListener('click', () => {
+      const url = ($('adminBackend').value || '').trim().replace(/\/$/,'');
+      if (url && !/^https:\/\//i.test(url)) return alert('Nur HTTPS erlaubt.');
+      localStorage.setItem('fabmargin_backend_url', url);
+      $('adminBackendStatus').textContent = 'Gespeichert.';
+      checkBackend();
+    });
+    $('testBackendBtn').addEventListener('click', checkBackend);
+    $('setBackendBtn').addEventListener('click', () => showAdminScreen());
+    $('lockNowBtn').addEventListener('click', () => {
+      window.FabVault.lock();
+      sessionStorage.removeItem('__mpw');
+      show('screenLogin');
+    });
+    $('restoreBtn').addEventListener('click', async () => {
+      try { await window.PurchaseManager.restore(); alert('Käufe abgefragt.'); renderHome(); }
+      catch (e) { alert('Fehler: ' + e.message); }
+    });
+
+    // Passwort ändern
+    $('changePwBtn').addEventListener('click', async () => {
+      const o = $('oldPw').value, n1 = $('newPw1').value, n2 = $('newPw2').value;
+      if (n1.length < 12) return $('changePwStatus').textContent = 'Neues Passwort zu kurz.';
+      if (n1 !== n2) return $('changePwStatus').textContent = 'Neue Passwörter stimmen nicht überein.';
+      try {
+        await window.FabVault.changePassword(o, n1);
+        sessionStorage.setItem('__mpw', n1);
+        $('changePwStatus').textContent = '✅ Passwort geändert.';
+        $('oldPw').value = $('newPw1').value = $('newPw2').value = '';
+      } catch (e) { $('changePwStatus').textContent = '❌ ' + e.message; }
+    });
+
+    // Export & Wipe
+    $('exportVaultBtn').addEventListener('click', () => {
+      const blob = new Blob([localStorage.getItem('fabmargin_vault_v1') || '{}'], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fabmargin-vault-backup.json';
+      a.click();
+    });
+    $('wipeBtn').addEventListener('click', () => {
+      if (!confirm('ALLES löschen (Tresor + Käufe + Einstellungen)?')) return;
+      if (!confirm('Wirklich? Kein Zurück!')) return;
+      localStorage.clear(); sessionStorage.clear(); location.reload();
+    });
+
     // Auto-Lock-Event
     document.addEventListener('vault:locked', () => {
       sessionStorage.removeItem('__mpw');
       show('screenLogin');
     });
     wireModalEvents();
+  }
+
+  // ---- Admin-Hilfsfunktionen ----
+
+  function showAdminScreen() {
+    show('screenAdmin');
+    if (adminToken) {
+      $('adminLoginBox').classList.add('hidden');
+      $('adminDashboard').classList.remove('hidden');
+      adminLoadDashboard();
+    } else {
+      $('adminLoginBox').classList.remove('hidden');
+      $('adminDashboard').classList.add('hidden');
+    }
+  }
+
+  function adminBackendUrl() {
+    return (localStorage.getItem('fabmargin_backend_url') || '').replace(/\/$/,'');
+  }
+
+  async function adminPost(path, data) {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte zuerst Backend-URL eintragen.'); return null; }
+    try {
+      const r = await fetch(base + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (adminToken || '') },
+        body: JSON.stringify(data)
+      });
+      return await r.json();
+    } catch (e) { alert('Fehler: ' + e.message); return null; }
+  }
+
+  async function adminGet(path) {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte zuerst Backend-URL eintragen.'); return null; }
+    try {
+      const r = await fetch(base + path, {
+        headers: { 'Authorization': 'Bearer ' + (adminToken || '') }
+      });
+      return await r.json();
+    } catch (e) { alert('Fehler: ' + e.message); return null; }
+  }
+
+  async function adminLogin() {
+    const user = ($('adminLoginUser').value || '').trim();
+    const pw = ($('adminLoginPw').value || '');
+    $('adminLoginErr').textContent = '';
+    if (!user || !pw) { $('adminLoginErr').textContent = 'Benutzername und Passwort erforderlich.'; return; }
+    const base = adminBackendUrl();
+    if (!base) { $('adminLoginErr').textContent = 'Bitte zuerst Backend-URL in den Einstellungen eintragen.'; return; }
+    try {
+      const r = await fetch(base + '/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pw })
+      });
+      const d = await r.json();
+      if (!d.ok) { $('adminLoginErr').textContent = '❌ ' + (d.error || 'Fehler'); return; }
+      adminToken = d.token;
+      $('adminLoginPw').value = '';
+      $('adminLoginBox').classList.add('hidden');
+      $('adminDashboard').classList.remove('hidden');
+      adminLoadDashboard();
+    } catch (e) { $('adminLoginErr').textContent = '❌ Nicht erreichbar: ' + e.message; }
+  }
+
+  async function adminLoadDashboard() {
+    const d = await adminGet('/admin/dashboard');
+    if (!d || !d.ok) return;
+    $('statUsers').textContent = d.users;
+    $('statCodes').textContent = d.unusedCodes;
+    $('statComm').textContent = d.communityPending;
+    $('statIncidents').textContent = d.incidents;
+    const paused = d.purchasesPaused;
+    $('adminPurchaseStatus').innerHTML = paused
+      ? '<span style="color:var(--red)">⏸ Käufe pausiert' + (d.pauseReason ? ': ' + d.pauseReason : '') + '</span>'
+      : '<span style="color:var(--green,#4caf50)">▶ Käufe aktiv</span>';
+    $('adminBackend').value = localStorage.getItem('fabmargin_backend_url') || '';
+  }
+
+  async function adminLoadCodes() {
+    const d = await adminGet('/admin/codes');
+    if (!d || !d.ok) return;
+    const box = $('adminCodesList');
+    if (!d.codes.length) { box.innerHTML = '<p class="muted small">Keine Codes vorhanden.</p>'; return; }
+    box.innerHTML = d.codes.map(c =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--border,#333)">
+        <span style="font-family:monospace;letter-spacing:1px">${c.code}</span>
+        <span class="muted small" style="margin-left:8px">${c.usedBy ? '✅ genutzt von ' + c.usedBy : '🔓 frei'}</span>
+      </div>`
+    ).join('');
+  }
+
+  async function adminLoadUsers() {
+    const d = await adminGet('/admin/users');
+    if (!d || !d.ok) return;
+    const box = $('adminUsersList');
+    if (!d.users.length) { box.innerHTML = '<p class="muted small">Keine Nutzer registriert.</p>'; return; }
+    box.innerHTML = d.users.map(u =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--border,#333)">
+        <div><strong>${u.username}</strong> <span class="muted small">${u.email || ''}</span>
+          ${u.blocked ? '<span style="color:var(--red);margin-left:6px">🚫 Gesperrt</span>' : ''}
+        </div>
+        <div class="row" style="margin-top:4px">
+          ${u.blocked
+            ? `<button class="tiny" onclick="window.__adminUnblock('${u.username}')">Entsperren</button>`
+            : `<button class="danger tiny" onclick="window.__adminBlock('${u.username}')">Sperren</button>`
+          }
+        </div>
+      </div>`
+    ).join('');
+    window.__adminBlock = async (username) => {
+      await adminPost('/admin/users/' + encodeURIComponent(username) + '/block', {});
+      adminLoadUsers();
+    };
+    window.__adminUnblock = async (username) => {
+      await adminPost('/admin/users/' + encodeURIComponent(username) + '/unblock', {});
+      adminLoadUsers();
+    };
+  }
+
+  async function adminLoadCommunity() {
+    const d = await adminGet('/admin/community');
+    if (!d || !d.ok) return;
+    const box = $('adminCommList');
+    if (!d.proposals.length) { box.innerHTML = '<p class="muted small">Keine Vorschläge vorhanden.</p>'; return; }
+    const statusLabel = { pending: '⏳ Ausstehend', approved: '✅ Angenommen', rejected: '❌ Abgelehnt' };
+    box.innerHTML = d.proposals.map(p =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--border,#333)">
+        <div><strong>${p.title}</strong> <span class="muted small">${statusLabel[p.status] || p.status}</span></div>
+        <div class="muted small" style="margin:2px 0">${(p.text || '').slice(0, 120)}</div>
+        ${p.status === 'pending' ? `
+          <div class="row" style="margin-top:4px">
+            <button class="tiny" onclick="window.__adminApprove('${p.id}')">✅ Annehmen</button>
+            <button class="danger tiny" onclick="window.__adminReject('${p.id}')">❌ Ablehnen</button>
+          </div>` : ''}
+      </div>`
+    ).join('');
+    window.__adminApprove = async (id) => {
+      await adminPost('/admin/community/' + id + '/approve', {});
+      adminLoadCommunity();
+    };
+    window.__adminReject = async (id) => {
+      await adminPost('/admin/community/' + id + '/reject', {});
+      adminLoadCommunity();
+    };
+  }
+
+  async function adminLoadSecLog() {
+    const d = await adminGet('/admin/security-log');
+    if (!d || !d.ok) return;
+    const box = $('adminSecLog');
+    if (!d.incidents.length) { box.innerHTML = '<p class="muted small">Keine Einträge.</p>'; return; }
+    const sev = { info: '#4caf50', warn: '#ff9800', error: '#f44336', crit: '#e91e63' };
+    box.innerHTML = d.incidents.map(i =>
+      `<div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:.8em">
+        <span style="color:${sev[i.severity]||'#aaa'}">[${i.severity.toUpperCase()}]</span>
+        <span class="muted"> ${i.time ? i.time.replace('T',' ').slice(0,19) : ''}</span>
+        <span> ${i.type}: ${i.detail || ''}</span>
+      </div>`
+    ).join('');
+  }
+
+  async function adminExport() {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte Backend-URL eintragen.'); return; }
+    const url = base + '/admin/export';
+    try {
+      const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + (adminToken || '') } });
+      if (!r.ok) { alert('Export fehlgeschlagen.'); return; }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fabmargin-server-export.json';
+      a.click();
+    } catch (e) { alert('Fehler: ' + e.message); }
   }
 
   async function doLogin() {

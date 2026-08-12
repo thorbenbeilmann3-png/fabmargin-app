@@ -64,6 +64,24 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .status-dot.ok{background:var(--green)}
 .status-dot.warn{background:var(--amber)}
 .status-dot.err{background:var(--red)}
+.printer-toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0 8px}
+.printer-toolbar>*{flex:1 1 220px}
+.printer-grid{display:grid;gap:14px}
+.printer-card{border:1px solid var(--line)}
+.printer-card-head{display:flex;gap:14px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.printer-card-head h3{margin:8px 0 6px;font-size:20px}
+.printer-chip{display:inline-flex;padding:5px 10px;border-radius:999px;background:#1c2d52;color:#d8e0f7;font-size:12px;font-weight:700}
+.printer-meta{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted);min-width:210px}
+.printer-settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+.printer-settings-block{background:#0d1a32;border:1px solid #24375e;border-radius:14px;padding:14px}
+.printer-settings-block h4{margin:0 0 10px;font-size:15px}
+.printer-setting{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #213456;font-size:13px}
+.printer-setting:last-child{border-bottom:0;padding-bottom:0}
+.printer-setting span{color:var(--muted)}
+.printer-warning{background:#3a2415;border:1px solid #634226;color:#ffdbaa;padding:10px 12px;border-radius:12px;font-size:13px;margin-bottom:12px}
+.printer-config{min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre}
+.printer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.section-intro{margin:0 0 4px}
 </style>
 </head>
 <body>
@@ -134,7 +152,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <div id="ownedList"><p class="muted small">Noch keine Module freigeschaltet.</p></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="premiumPanel">
       <h2>💳 Credits</h2>
       <p class="muted small">Credits werden für Premium-Funktionen verwendet. Sie verfallen nie.</p>
       <div id="creditBalance" style="font-size:22px;font-weight:900;margin:10px 0">Guthaben: <span id="creditBalanceNum">0</span> Credits</div>
@@ -167,12 +185,108 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
   <nav class="bottom">
     <button data-tab="home" class="active"><span class="ico">🏠</span>Start</button>
-    <button data-tab="store"><span class="ico">🛒</span>Store</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">⭐</span>Premium</button>
     <button data-tab="admin"><span class="ico">⚙️</span>Admin</button>
+    <button data-tab="chat"><span class="ico">💬</span>Chat</button>
   </nav>
 </section>
 
-<!-- SCREEN 4: Feature-Detail (nach Kauf) -->
+<!-- SCREEN 4: Drucker-Profile -->
+<section id="screenPrinters" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> Drucker-Profile</div>
+    <p class="muted">Profile, Konfigurationsdateien und Empfehlungen für aktuelle und klassische 3D-Drucker.</p>
+  </header>
+  <main>
+    <div class="card">
+      <h2>🖨️ Drucker-Profile</h2>
+      <p class="muted section-intro">Finde schnell das passende Profil, filtere nach Hersteller und exportiere die Konfiguration direkt.</p>
+      <div class="printer-toolbar">
+        <input id="printerSearch" placeholder="Suche nach Modell, Hersteller oder Software">
+        <select id="printerManufacturerFilter">
+          <option value="">Alle Hersteller</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="printerProfileList" class="printer-grid"></div>
+
+    <div class="card">
+      <h2>➕ Eigenen Drucker hinzufügen</h2>
+      <p class="muted small">Eigene Drucker kannst du lokal in der App speichern und wie die Standardprofile per Datei oder E-Mail weitergeben.</p>
+      <form id="customPrinterForm">
+        <div class="row">
+          <div>
+            <label>Hersteller</label>
+            <input name="customManufacturer" required placeholder="z. B. Qidi Tech">
+          </div>
+          <div>
+            <label>Modell</label>
+            <input name="customModel" required placeholder="z. B. X-Max 3">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Software-Empfehlung</label>
+            <input name="customSoftware" required placeholder="z. B. OrcaSlicer">
+          </div>
+          <div>
+            <label>Bauvolumen</label>
+            <input name="customBuildVolume" placeholder="z. B. 300 × 250 × 300 mm">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Düsengröße</label>
+            <input name="customNozzle" placeholder="0,4 mm">
+          </div>
+          <div>
+            <label>Notiz</label>
+            <input name="customNotes" placeholder="z. B. Direktantrieb, PLA-Farm">
+          </div>
+        </div>
+
+        <h3>Grundeinstellungen</h3>
+        <div class="row">
+          <input name="stableTemp" required placeholder="Drucktemperatur">
+          <input name="stableBed" required placeholder="Betttemperatur">
+        </div>
+        <div class="row">
+          <input name="stableSpeed" required placeholder="Geschwindigkeit">
+          <input name="stableLayer" required placeholder="Layer-Höhe">
+          <input name="stableRetraction" required placeholder="Retraction">
+        </div>
+
+        <h3>Pro/Farm-Einstellungen</h3>
+        <div class="row">
+          <input name="proTemp" required placeholder="Drucktemperatur">
+          <input name="proBed" required placeholder="Betttemperatur">
+        </div>
+        <div class="row">
+          <input name="proSpeed" required placeholder="Geschwindigkeit">
+          <input name="proLayer" required placeholder="Layer-Höhe">
+          <input name="proRetraction" required placeholder="Retraction">
+        </div>
+
+        <label>Hersteller-Konfigurationsdatei (optional)</label>
+        <textarea name="customConfig" placeholder="Wenn leer, erzeugt die App automatisch eine Konfigurationsdatei."></textarea>
+        <div style="margin-top:14px">
+          <button type="submit">Eigenen Drucker speichern</button>
+        </div>
+      </form>
+    </div>
+  </main>
+  <nav class="bottom">
+    <button data-tab="home"><span class="ico">🏠</span>Start</button>
+    <button data-tab="printers" class="active"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">⭐</span>Premium</button>
+    <button data-tab="admin"><span class="ico">⚙️</span>Admin</button>
+    <button data-tab="chat"><span class="ico">💬</span>Chat</button>
+  </nav>
+</section>
+
+<!-- SCREEN 5: Feature-Detail (nach Kauf) -->
 <section id="screenFeature" class="hidden">
   <header>
     <div class="brand"><img src="icon-192.png" alt=""> <span id="featTitle">Modul</span></div>
@@ -185,7 +299,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
 </section>
 
-<!-- SCREEN 5: Admin-Bereich (7× Logo-Tap) -->
+<!-- SCREEN 6: Admin-Bereich (7× Logo-Tap) -->
 <section id="screenAdmin" class="hidden">
   <header>
     <div class="brand"><img src="icon-192.png" alt=""> Admin-Bereich</div>
@@ -258,6 +372,13 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <div id="commList"><p class="muted small">Lade…</p></div>
     </div>
   </main>
+  <nav class="bottom">
+    <button data-tab="home"><span class="ico">🏠</span>Start</button>
+    <button data-tab="printers"><span class="ico">🖨️</span>Drucker</button>
+    <button data-tab="premium"><span class="ico">⭐</span>Premium</button>
+    <button data-tab="admin"><span class="ico">⚙️</span>Admin</button>
+    <button data-tab="chat" class="active"><span class="ico">💬</span>Chat</button>
+  </nav>
 </section>
 
 <script src="assets/crypto-vault.js"></script>
@@ -265,6 +386,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 <script src="features/purchase-manager.js"></script>
 <script src="features/credit-manager.js"></script>
 <script src="features/content-loader.js"></script>
+<script src="features/printers.js"></script>
 <!-- Modal: Keine Credits -->
 <div id="modalNoCredits" style="display:none;position:fixed;inset:0;z-index:999;background:#000a;align-items:flex-end;justify-content:center">
   <div style="background:var(--panel);border-radius:24px 24px 0 0;padding:28px 20px 40px;width:100%;max-width:640px">

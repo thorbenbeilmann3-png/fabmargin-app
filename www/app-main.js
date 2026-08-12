@@ -178,7 +178,7 @@
     document.querySelectorAll('[data-open-legal]').forEach(btn => {
       btn.addEventListener('click', () => openLegalScreen(btn.dataset.openLegal || 'overview'));
     });
-    if ($('footerLegalBtn')) $('footerLegalBtn').addEventListener('click', openLegalScreen);
+    if ($('footerLegalBtn')) $('footerLegalBtn').addEventListener('click', () => openLegalScreen('overview'));
 
     // Admin-Login
     $('adminLoginBtn').addEventListener('click', adminLogin);

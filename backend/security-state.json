@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "admin": {
+    "username": "test",
+    "salt": "23iWYGVuM1QLNl0qO57Q_fdz-4tbOynn",
+    "passwordHash": "qBvZ-dCHfZjwNAcSHeXuCrr4nU5ye0xjzPomRGF4iINc19c9jrpaUSSor0ir5nSMWAnCldSz4IYdfGx-LVGPKQ",
+    "updatedAt": "2026-08-12T05:25:38.833Z"
+  },
+  "reset": null,
+  "security": {
+    "failedLogins": 0,
+    "purchasesPaused": false,
+    "pauseReason": "",
+    "incidents": []
+  },
+  "purchases": {},
+  "users": {},
+  "activationCodes": {},
+  "community": [],
+  "supportMessages": [],
+  "betaInvites": {},
+  "instances": {}
+}

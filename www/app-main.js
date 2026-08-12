@@ -2,7 +2,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity','screenUserLogin']
+    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity','screenBeta','screenUserLogin']
       .forEach(s => $(s).classList.toggle('hidden', s !== id));
     window.scrollTo(0,0);
   };
@@ -188,6 +188,7 @@
     $('adminRefreshBtn').addEventListener('click', adminLoadDashboard);
     $('adminLogoutBtn').addEventListener('click', () => {
       adminToken = null;
+      window.__getAdminToken = () => null;
       $('adminDashboard').classList.add('hidden');
       $('adminLoginBox').classList.remove('hidden');
       $('adminLoginUser').value = '';
@@ -336,6 +337,7 @@
       const d = await r.json();
       if (!d.ok) { $('adminLoginErr').textContent = '❌ ' + (d.error || 'Fehler'); return; }
       adminToken = d.token;
+      window.__getAdminToken = () => adminToken;
       $('adminLoginPw').value = '';
       $('adminLoginBox').classList.add('hidden');
       $('adminDashboard').classList.remove('hidden');
@@ -718,7 +720,113 @@
   document.addEventListener('DOMContentLoaded', boot);
 })();
 
-// ------- Erweiterung v3: Kundenlogin & Community -------
+// ------- Erweiterung v4: Beta-Tester + Anti-Piracy Admin-Panel -------
+(function(){
+  const $=id=>document.getElementById(id);
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+  function getAdminToken(){
+    return typeof window.__getAdminToken==='function'?window.__getAdminToken():null;
+  }
+  function getBase(){ return (localStorage.getItem('fabmargin_backend_url')||'').replace(/\/$/,''); }
+
+  async function betaPost(path,data){
+    const base=getBase(); if(!base){alert('Bitte Backend-URL eintragen.');return null;}
+    const tk=getAdminToken();
+    try{
+      const r=await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(tk||'')},body:JSON.stringify(data)});
+      return await r.json();
+    }catch(e){alert('Fehler: '+e.message);return null;}
+  }
+  async function betaGet(path){
+    const base=getBase(); if(!base){alert('Bitte Backend-URL eintragen.');return null;}
+    const tk=getAdminToken();
+    try{
+      const r=await fetch(base+path,{headers:{'Authorization':'Bearer '+(tk||'')}});
+      return await r.json();
+    }catch(e){alert('Fehler: '+e.message);return null;}
+  }
+
+  async function adminBetaInvite(){
+    const name=($('betaInviteName').value||'').trim();
+    const email=($('betaInviteEmail').value||'').trim();
+    if(!name||!email){alert('Name und E-Mail erforderlich.');return;}
+    const d=await betaPost('/admin/beta/invite',{name,email});
+    if(!d||!d.ok){alert('Fehler: '+(d&&d.error||'Unbekannt'));return;}
+    const base=getBase();
+    const link=base.replace('/api','').replace(':8787','').replace('backend','app')||location.origin;
+    // Zeige generischen Link (App-URL + ?token=...)
+    const fullLink=location.origin+location.pathname+'?token='+d.token;
+    const linkDiv=$('betaGeneratedLink');
+    const linkText=$('betaLinkText');
+    if(linkDiv&&linkText){
+      linkText.textContent=fullLink;
+      linkDiv.style.display='block';
+    }
+    $('betaInviteName').value='';
+    $('betaInviteEmail').value='';
+  }
+
+  async function adminBetaLoadList(){
+    const d=await betaGet('/admin/beta/list');
+    if(!d||!d.ok) return;
+    const box=$('betaTesterList');
+    if(!d.invites.length){box.innerHTML='<p class="muted small">Keine Beta-Einladungen.</p>';return;}
+    box.innerHTML='';
+    const statusColor={offen:'#ffc35b',aktiv:'#45d483',abgelaufen:'#a9b8d4',widerrufen:'#ff6b75'};
+    d.invites.forEach(inv=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div><strong>${esc(inv.name)}</strong> <span class="muted small">&lt;${esc(inv.email)}&gt;</span>
+          <span style="color:${statusColor[inv.status]||'#aaa'};margin-left:6px;font-size:12px">● ${esc(inv.status)}</span>
+        </div>
+        <div class="muted small">Erstellt: ${esc((inv.createdAt||'').slice(0,10))} · Läuft ab: ${esc((inv.expiresAt||'').slice(0,10))}</div>
+        ${inv.usedBy?`<div class="muted small">Aktiviert von: ${esc(inv.usedBy)}</div>`:''}`;
+      if(!inv.revoked&&!inv.usedAt){
+        const btn=document.createElement('button');
+        btn.className='danger tiny'; btn.style.marginTop='4px'; btn.textContent='Widerrufen';
+        btn.onclick=()=>{
+          if(!confirm('Einladung widerrufen?')) return;
+          betaPost('/admin/beta/revoke/'+encodeURIComponent(inv.token),{}).then(()=>adminBetaLoadList());
+        };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
+  }
+
+  async function adminInstancesLoad(){
+    const d=await betaGet('/admin/instances');
+    if(!d||!d.ok) return;
+    const box=$('instancesList');
+    if(!d.instances.length){box.innerHTML='<p class="muted small">Keine Instanzen registriert.</p>';return;}
+    box.innerHTML='';
+    d.instances.forEach(inst=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div class="muted small" style="font-family:monospace">${esc(inst.instanceId)}</div>
+        <div class="small">${esc(String(inst.ips.length))} IP(s): ${esc(inst.ips.join(', '))}</div>
+        ${inst.blockedAt?`<div style="color:var(--red)">🚫 Gesperrt: ${esc(inst.blockReason||'')}</div>`:'<span style="color:var(--green)">✅ Aktiv</span>'}`;
+      if(inst.blockedAt){
+        const btn=document.createElement('button');
+        btn.className='tiny'; btn.style.marginTop='4px'; btn.textContent='Entsperren';
+        btn.onclick=()=>{ betaPost('/admin/instances/'+encodeURIComponent(inst.instanceId)+'/unblock',{}).then(()=>adminInstancesLoad()); };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    if($('betaInviteBtn')) $('betaInviteBtn').addEventListener('click',adminBetaInvite);
+    if($('betaCopyLinkBtn')) $('betaCopyLinkBtn').addEventListener('click',()=>{
+      const txt=$('betaLinkText');
+      if(txt&&navigator.clipboard) navigator.clipboard.writeText(txt.textContent).then(()=>alert('Link kopiert!')).catch(()=>{});
+    });
+    if($('betaLoadListBtn')) $('betaLoadListBtn').addEventListener('click',adminBetaLoadList);
+    if($('instancesLoadBtn')) $('instancesLoadBtn').addEventListener('click',adminInstancesLoad);
+  });
+})();
 (function(){
   const $=id=>document.getElementById(id);
   document.addEventListener('DOMContentLoaded',()=>{

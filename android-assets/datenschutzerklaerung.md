@@ -4,9 +4,10 @@
 
 ## 1. Verantwortlicher
 
-[Ihr Name / Firma]
-[Ihre Adresse]
-E-Mail: printprofit3d_business.stoneware127@passmail.net
+Thorben Beilmann
+Kirchgasse 9
+55578 Wolfsheim
+E-Mail: app.github.uncorrupt873@passmail.net
 
 ## 2. Welche Daten wir verarbeiten
 
@@ -54,7 +55,18 @@ die oben genannte E-Mail-Adresse.
 Löschanfragen bitte per E-Mail. Wir löschen alle Ihre Daten innerhalb von
 30 Tagen.
 
-## 9. Änderungen
+## 9. KI-Verarbeitung (Opt-Out)
+
+Zur Verarbeitung von Partner-Anfragen und Preisempfehlungen nutzt die App
+KI-gestützte Systeme. Eingaben werden zur Analyse verarbeitet, aber nicht
+dauerhaft gespeichert. Nutzerdaten werden **nicht** zum Trainieren der KI
+verwendet.
+
+Du kannst KI-Funktionen jederzeit unter Einstellungen → KI & Privatsphäre
+deaktivieren. Wenn KI deaktiviert ist, findet für diese Funktionen keine
+KI-Verarbeitung statt.
+
+## 10. Änderungen
 
 Diese Datenschutzerklärung kann bei Bedarf angepasst werden. Die jeweils
 aktuelle Version finden Sie in der App und unter der hinterlegten URL.

@@ -42,7 +42,25 @@
     if(!j.ok) throw new Error(j.error||'Profilabruf fehlgeschlagen');
     return j;
   }
+  async function getAiSettings(){
+    const be=beUrl();
+    const u=get();
+    if(!be||!u||!u.token) throw new Error('Nicht angemeldet');
+    const r=await fetch(be+'/user/ai-settings',{headers:{Authorization:'Bearer '+u.token}});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'KI-Einstellungen konnten nicht geladen werden');
+    return j;
+  }
+  async function updateAiSettings(settings){
+    const be=beUrl();
+    const u=get();
+    if(!be||!u||!u.token) throw new Error('Nicht angemeldet');
+    const r=await fetch(be+'/user/ai-settings',{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+u.token},body:JSON.stringify(settings)});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'KI-Einstellungen konnten nicht gespeichert werden');
+    return j;
+  }
   function current(){return get()}
   function isLoggedIn(){return !!(get()&&get().token)}
-  g.UserAuth={register,activate,login,logout,profile,current,isLoggedIn};
+  g.UserAuth={register,activate,login,logout,profile,getAiSettings,updateAiSettings,current,isLoggedIn};
 })(window);

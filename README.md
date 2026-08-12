@@ -71,3 +71,10 @@ im Backend – nicht im „Verstecken" des Codes.
 6. In-App-Produkte in Play Console anlegen (siehe `docs/05-IN-APP-KAEUFE.md`).
 
 Ich helfe an jedem Schritt weiter – sagen Sie einfach, wo Sie stehen.
+
+## APK herunterladen
+1. Gehe zu: https://github.com/thorbenbeilmann3-png/fabmargin-app/actions
+2. Klicke auf "Build APK"
+3. Wähle den letzten erfolgreichen Run
+4. Scrolle nach unten zu "Artifacts"
+5. Klicke auf "FabMargin-debug.apk" zum Herunterladen

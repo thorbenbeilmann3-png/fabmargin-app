@@ -1,6 +1,6 @@
 {
-  "appId": "com.printprofit3d.fabmargin",
-  "appName": "FabMargin 3D",
+  "appId": "com.fabmargin.app",
+  "appName": "FabMargin",
   "webDir": "www",
   "bundledWebRuntime": false,
   "android": {

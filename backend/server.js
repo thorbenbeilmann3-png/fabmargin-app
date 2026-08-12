@@ -171,6 +171,10 @@ function sanitizeImage(input) {
   if (value.length > 350000) return null;
   return value;
 }
+function sanitizeDiagnosticFlags(input) {
+  const allowed = new Set(['devtools', 'many_errors', 'window.error', 'unhandledrejection', 'interval']);
+  return Array.isArray(input) ? input.map(x => String(x || '').trim()).filter(x => allowed.has(x)).slice(0, 10) : [];
+}
 function normalizeProfileRating(profile) {
   const ratings = Array.isArray(profile.ratings) ? profile.ratings : [];
   if (!ratings.length) return profile.initialRating || profile.rating || 0;
@@ -497,16 +501,14 @@ const server = http.createServer(async (req, res) => {
       const viewer = getCurrentUser(req);
       if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
       const b = await body(req);
-      const method = b.method === 'points' ? 'points' : 'credits';
+      const method = 'points';
       const profile = (state.slicerProfiles || []).find(x => x.id === slicerBuyMatch[1] && x.status === 'approved');
       if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
       if (profile.owner === viewer.username) return json(res, 400, { ok: false, error: 'Eigenes Profil kann nicht gekauft werden' }, origin);
       if ((viewer.user.purchasedSlicerProfiles || []).includes(profile.id)) return json(res, 200, { ok: true, alreadyOwned: true, profileId: profile.id }, origin);
-      if (method === 'points') {
-        if ((viewer.user.points || 0) < 40) return json(res, 400, { ok: false, error: 'Nicht genug Punkte' }, origin);
-        viewer.user.points -= 40;
-        viewer.user.pointHistory.unshift({ id: crypto.randomUUID(), amount: -40, reason: 'Slicer-Profil gekauft: ' + profile.name, createdAt: new Date().toISOString() });
-      }
+      if ((viewer.user.points || 0) < 40) return json(res, 400, { ok: false, error: 'Nicht genug Punkte' }, origin);
+      viewer.user.points -= 40;
+      viewer.user.pointHistory.unshift({ id: crypto.randomUUID(), amount: -40, reason: 'Slicer-Profil gekauft: ' + profile.name, createdAt: new Date().toISOString() });
       viewer.user.purchasedSlicerProfiles.push(profile.id);
       profile.purchases.push({ username: viewer.username, method, createdAt: new Date().toISOString() });
       profile.purchaseCount = profile.purchases.length;
@@ -536,12 +538,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, rating: profile.rating }, origin);
     }
 
-    const approveSlicerMatch = u.pathname.match(/^\/admin\/slicer\/approve\/([^/]+)$/);
     if (u.pathname === '/admin/slicer/pending' && req.method === 'GET') {
       const items = (state.slicerProfiles || []).filter(x => x.status === 'pending');
       return json(res, 200, { ok: true, profiles: items }, origin);
     }
 
+    const approveSlicerMatch = u.pathname.match(/^\/admin\/slicer\/approve\/([^/]+)$/);
     if (approveSlicerMatch && req.method === 'POST') {
       const profile = (state.slicerProfiles || []).find(x => x.id === approveSlicerMatch[1]);
       if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
@@ -609,7 +611,7 @@ const server = http.createServer(async (req, res) => {
         username: viewer?.username || 'gast',
         devtoolsDetected: !!b.devtoolsDetected,
         errorCount: Math.max(0, Number(b.errorCount || 0)),
-        flags: Array.isArray(b.flags) ? b.flags.slice(0, 10) : [],
+        flags: sanitizeDiagnosticFlags(b.flags),
         userAgent: String(b.userAgent || req.headers['user-agent'] || '').slice(0, 300),
         createdAt: new Date().toISOString()
       };

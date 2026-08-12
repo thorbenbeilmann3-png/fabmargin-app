@@ -1054,7 +1054,6 @@
 (function(){
   const USER_KEY = 'fabmargin_user_v1';
   const DIAG_SENT_KEY = 'fabmargin_diag_sent_v1';
-  const PROFILE_CREDIT_COST = 5;
   const PROFILE_POINT_COST = 40;
   const $ = id => document.getElementById(id);
   let cachedProfile = null;
@@ -1098,9 +1097,14 @@
     return score < 40 ? ['schwach', 'var(--red)'] : score < 70 ? ['mittel', 'var(--amber)'] : ['stark', 'var(--green)'];
   }
   function secureRandom(max){
+    if (!max || max < 1) return 0;
+    const limit = Math.floor(0x100000000 / max) * max;
     const array = new Uint32Array(1);
-    window.crypto.getRandomValues(array);
+    do { window.crypto.getRandomValues(array); } while (array[0] >= limit);
     return array[0] % max;
+  }
+  function isSafeImageSrc(value){
+    return /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(String(value || ''));
   }
   function generatePassword(length = 18){
     const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%^&*()-_=+[]{}:,.?'];
@@ -1171,7 +1175,7 @@
     if (!input || !preview) return;
     const files = Array.from(input.files || []).slice(0, 3);
     selectedImages = await Promise.all(files.map(fileToDataUrl));
-    preview.innerHTML = selectedImages.map(src => `<img src="${src}" alt="Vorschau">`).join('');
+    preview.innerHTML = selectedImages.filter(isSafeImageSrc).map(src => `<img src="${src}" alt="Vorschau">`).join('');
   }
   async function loadCmsContent(){
     try {
@@ -1224,7 +1228,7 @@
     if ($('operatorConsoleCard')) $('operatorConsoleCard').classList.toggle('hidden', profile?.role !== 'operator');
     if ($('slicerMarketplaceStatus')) {
       $('slicerMarketplaceStatus').textContent = profile?.username
-        ? `Angemeldet als ${profile.username}. Profilkäufe kosten ${PROFILE_CREDIT_COST} Credits oder ${PROFILE_POINT_COST} Punkte.`
+        ? `Angemeldet als ${profile.username}. Profilkäufe kosten ${PROFILE_POINT_COST} Punkte.`
         : 'Bitte zuerst im Kundenbereich anmelden, um Profile zu kaufen oder zu teilen.';
     }
   }
@@ -1281,17 +1285,15 @@
               <span class="chip">Temp ${esc(profile.settings?.temp)}</span>
               ${(profile.badges || []).map(b => `<span class="chip">🏅 ${esc(b)}</span>`).join('')}
             </div>
-            ${(profile.images || []).length ? `<div class="gallery-strip">${profile.images.map(src => `<img src="${src}" alt="Bild">`).join('')}</div>` : ''}
+            ${(profile.images || []).length ? `<div class="gallery-strip">${profile.images.filter(isSafeImageSrc).map(src => `<img src="${src}" alt="Bild">`).join('')}</div>` : ''}
           </div>
           <div style="text-align:right;min-width:120px">
             <div class="price">${profile.purchaseCount || 0} Käufe</div>
-            <button class="tiny" data-buy-credits="${profile.id}" style="margin-top:6px">Mit Credits</button>
-            <button class="ghost tiny" data-buy-points="${profile.id}" style="margin-top:6px">Mit Punkten</button>
+            <button class="tiny" data-buy-points="${profile.id}" style="margin-top:6px">Mit Punkten</button>
             <button class="ghost tiny" data-rate="${profile.id}" style="margin-top:6px">Bewerten</button>
           </div>
         </div>
       `).join('');
-      box.querySelectorAll('button[data-buy-credits]').forEach(btn => btn.onclick = () => buyProfile(btn.dataset.buyCredits, 'credits'));
       box.querySelectorAll('button[data-buy-points]').forEach(btn => btn.onclick = () => buyProfile(btn.dataset.buyPoints, 'points'));
       box.querySelectorAll('button[data-rate]').forEach(btn => btn.onclick = () => rateProfile(btn.dataset.rate));
     } catch (e) {
@@ -1300,19 +1302,13 @@
   }
   async function buyProfile(profileId, method){
     if (!userToken()) return alert('Bitte zuerst im Kundenbereich anmelden.');
-    let creditsReserved = false;
     try {
-      if (method === 'credits') {
-        creditsReserved = !!(window.CreditManager && window.CreditManager.reserveCredits(PROFILE_CREDIT_COST));
-        if (!creditsReserved) return alert('Nicht genug Credits. Bitte zuerst Guthaben aufladen.');
-      }
       await api(`/slicer/profile/${profileId}/buy`, { method: 'POST', auth: 'user', body: { method } });
       alert('✅ Profil erfolgreich freigeschaltet.');
       await loadProfileData();
       await loadPoints();
       await loadMarketplace();
     } catch (e) {
-      if (creditsReserved && window.CreditManager) window.CreditManager.refundCredits(PROFILE_CREDIT_COST);
       alert('❌ ' + e.message);
     }
   }
@@ -1555,17 +1551,19 @@
   }
   async function maybeSendDiagnostics(reason){
     if (!backend() || sessionStorage.getItem(DIAG_SENT_KEY)) return;
+    const devtoolsOpen = devtoolsDetected();
     const flags = [];
-    if (devtoolsDetected()) flags.push('devtools');
+    if (devtoolsOpen) flags.push('devtools');
     if (jsErrorCount >= 3) flags.push('many_errors');
+    if (reason) flags.push(reason);
     if (!flags.length) return;
     try {
+      sessionStorage.setItem(DIAG_SENT_KEY, '1');
       await api('/diagnostics/report', {
         method: 'POST',
-        body: { devtoolsDetected: devtoolsDetected(), errorCount: jsErrorCount, flags: [...flags, reason], userAgent: navigator.userAgent },
+        body: { devtoolsDetected: devtoolsOpen, errorCount: jsErrorCount, flags, userAgent: navigator.userAgent },
         auth: 'user'
       });
-      sessionStorage.setItem(DIAG_SENT_KEY, '1');
     } catch {}
   }
   async function refreshHome(){
@@ -1576,8 +1574,8 @@
     await refreshOperatorConsole();
   }
   function refreshAdmin(data){
-    if ($('statComm') && typeof data.slicerPending !== 'undefined') {
-      $('adminPauseErr').textContent = `Offene Slicer-Freigaben: ${data.slicerPending || 0} · Diagnosen: ${data.diagnostics || 0}`;
+    if ($('adminTeil7Status') && typeof data.slicerPending !== 'undefined') {
+      $('adminTeil7Status').textContent = `Offene Slicer-Freigaben: ${data.slicerPending || 0} · Diagnosen: ${data.diagnostics || 0}`;
     }
   }
   document.addEventListener('DOMContentLoaded', () => {

@@ -299,42 +299,126 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
 </section>
 
-<!-- SCREEN 6: Admin-Bereich (7× Logo-Tap) -->
+<!-- SCREEN 6: Admin-Bereich -->
 <section id="screenAdmin" class="hidden">
   <header>
     <div class="brand"><img src="icon-192.png" alt=""> Admin-Bereich</div>
     <button class="ghost tiny" id="adminBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button>
   </header>
   <main>
-    <div class="card">
-      <h2>⚙️ Admin</h2>
-      <p class="muted small">Verwaltung, Backend-Verbindung, Master-Passwort ändern.</p>
-      <label>Backend-URL (Render/HTTPS)</label>
-      <input id="adminBackend" placeholder="https://ihre-backend.onrender.com">
-      <div class="row" style="margin-top:8px">
-        <button class="tiny" id="saveBackendBtn">Backend speichern</button>
-        <button class="ghost tiny" id="testBackendBtn">Verbindung testen</button>
+
+    <!-- Admin-Login -->
+    <div class="card" id="adminLoginBox">
+      <h2>🔐 Admin-Login</h2>
+      <p class="muted small">Bitte melden Sie sich mit Ihren Admin-Zugangsdaten an.</p>
+      <label>Benutzername</label>
+      <input id="adminLoginUser" autocomplete="username">
+      <label>Passwort</label>
+      <input id="adminLoginPw" type="password" autocomplete="current-password">
+      <div id="adminLoginErr" class="small" style="color:var(--red);margin-top:6px"></div>
+      <div style="margin-top:12px"><button id="adminLoginBtn">Anmelden</button></div>
+    </div>
+
+    <!-- Admin-Dashboard (nach Login sichtbar) -->
+    <div id="adminDashboard" class="hidden">
+
+      <!-- Dashboard -->
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <h2 style="margin:0">📊 Dashboard</h2>
+          <button class="ghost tiny" id="adminRefreshBtn">🔄 Aktualisieren</button>
+        </div>
+        <div id="adminStats" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div class="card" style="padding:10px;text-align:center"><div id="statUsers" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Nutzer</div></div>
+          <div class="card" style="padding:10px;text-align:center"><div id="statCodes" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Freie Codes</div></div>
+          <div class="card" style="padding:10px;text-align:center"><div id="statComm" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Vorschläge</div></div>
+          <div class="card" style="padding:10px;text-align:center"><div id="statIncidents" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Incidents</div></div>
+        </div>
+        <div id="adminPurchaseStatus" style="margin-top:10px" class="small"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="danger tiny" id="adminPauseBtn">⏸ Käufe pausieren</button>
+          <button class="tiny" id="adminResumeBtn">▶ Käufe fortsetzen</button>
+        </div>
+        <div id="adminPauseErr" class="small muted" style="margin-top:6px"></div>
       </div>
-      <div id="adminBackendStatus" class="small muted" style="margin-top:8px"></div>
-    </div>
-    <div class="card">
-      <h2>🔑 Master-Passwort ändern</h2>
-      <label>Aktuelles Passwort</label>
-      <input id="oldPw" type="password">
-      <label>Neues Passwort</label>
-      <input id="newPw1" type="password">
-      <label>Neues Passwort wiederholen</label>
-      <input id="newPw2" type="password">
-      <div style="margin-top:8px"><button id="changePwBtn">Passwort ändern</button></div>
-      <div id="changePwStatus" class="small" style="margin-top:8px"></div>
-    </div>
-    <div class="card">
-      <h2>🧹 Werkzeuge</h2>
-      <div class="row">
-        <button class="ghost tiny" id="exportVaultBtn">Verschlüsseltes Backup exportieren</button>
-        <button class="danger tiny" id="wipeBtn">Alles löschen</button>
+
+      <!-- Backend-URL -->
+      <div class="card">
+        <h2>🌐 Backend-URL</h2>
+        <input id="adminBackend" placeholder="https://ihre-backend.onrender.com">
+        <div class="row" style="margin-top:8px">
+          <button class="tiny" id="saveBackendBtn">Speichern</button>
+          <button class="ghost tiny" id="testBackendBtn">Verbindung testen</button>
+        </div>
+        <div id="adminBackendStatus" class="small muted" style="margin-top:8px"></div>
       </div>
-    </div>
+
+      <!-- Aktivierungscodes -->
+      <div class="card">
+        <h2>🎟 Aktivierungscodes</h2>
+        <p class="muted small">Codes für neue Nutzer nach dem Kauf generieren.</p>
+        <button id="adminGenCodeBtn">+ Neuen Code generieren</button>
+        <div id="adminGeneratedCode" class="small" style="margin-top:8px;font-family:monospace;letter-spacing:2px;font-size:1.1em"></div>
+        <div style="margin-top:12px">
+          <button class="ghost tiny" id="adminLoadCodesBtn">Alle Codes anzeigen</button>
+          <div id="adminCodesList" style="margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- Nutzer-Verwaltung -->
+      <div class="card">
+        <h2>👥 Nutzer-Verwaltung</h2>
+        <button class="ghost tiny" id="adminLoadUsersBtn">Nutzer laden</button>
+        <div id="adminUsersList" style="margin-top:10px"></div>
+      </div>
+
+      <!-- Community-Moderation -->
+      <div class="card">
+        <h2>💡 Community-Moderation</h2>
+        <button class="ghost tiny" id="adminLoadCommBtn">Vorschläge laden</button>
+        <div id="adminCommList" style="margin-top:10px"></div>
+      </div>
+
+      <!-- Sicherheits-Log -->
+      <div class="card">
+        <h2>🔒 Sicherheits-Log</h2>
+        <button class="ghost tiny" id="adminLoadLogBtn">Log laden</button>
+        <div id="adminSecLog" style="margin-top:10px;max-height:300px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Master-Passwort ändern -->
+      <div class="card">
+        <h2>🔑 Master-Passwort ändern</h2>
+        <label>Aktuelles Passwort</label>
+        <input id="oldPw" type="password">
+        <label>Neues Passwort</label>
+        <input id="newPw1" type="password">
+        <label>Neues Passwort wiederholen</label>
+        <input id="newPw2" type="password">
+        <div style="margin-top:8px"><button id="changePwBtn">Passwort ändern</button></div>
+        <div id="changePwStatus" class="small" style="margin-top:8px"></div>
+      </div>
+
+      <!-- Werkzeuge -->
+      <div class="card">
+        <h2>🧹 Werkzeuge</h2>
+        <div class="row">
+          <button class="ghost tiny" id="exportVaultBtn">📦 Vault-Backup</button>
+          <button class="ghost tiny" id="adminExportBtn">📤 Server-Export</button>
+          <button class="danger tiny" id="wipeBtn">🗑 Lokal löschen</button>
+        </div>
+        <div style="margin-top:8px">
+          <button class="danger tiny" id="adminWipeBtn">⚠️ Server-Daten löschen</button>
+        </div>
+      </div>
+
+      <!-- Abmelden -->
+      <div class="card" style="text-align:center">
+        <button class="ghost tiny" id="adminLogoutBtn">🚪 Admin abmelden</button>
+      </div>
+
+    </div><!-- /adminDashboard -->
+
   </main>
 </section>
 

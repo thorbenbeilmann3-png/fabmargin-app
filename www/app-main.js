@@ -1,17 +1,40 @@
 // FabMargin 3D – Haupt-App-Logik
 (function () {
   const $ = (id) => document.getElementById(id);
+  const SCREEN_IDS = ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenUserLogin','screenCommunity','screenLegal','screenBeta'];
+  const DISCLAIMER_KEY = 'fabmargin_disclaimer_v1';
+  const SPLASH_DELAY_MS = 900;
+  let lastMainScreen = 'screenHome';
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity','screenBeta','screenUserLogin']
-      .forEach(s => $(s).classList.toggle('hidden', s !== id));
+    SCREEN_IDS.forEach(s => $(s).classList.toggle('hidden', s !== id));
+    if (['screenHome', 'screenAdmin', 'screenCommunity'].includes(id)) lastMainScreen = id;
     window.scrollTo(0,0);
   };
 
-  function setActiveTab(tab) {
-    document.querySelectorAll('nav.bottom button').forEach(button => {
-      button.classList.toggle('active', button.dataset.tab === tab);
-    });
-  }
+  const setActiveTab = (tab) => {
+    document.querySelectorAll('nav.bottom button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+  };
+
+  const scrollToBlock = (id) => {
+    const el = $(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openLegalScreen = () => {
+    show('screenLegal');
+    setActiveTab('');
+  };
+
+  const updateDisclaimerOverlay = () => {
+    const overlay = $('disclaimerOverlay');
+    if (!overlay) return;
+    overlay.classList.toggle('hidden', localStorage.getItem(DISCLAIMER_KEY) === 'accepted');
+  };
+
+  const finishSplash = () => {
+    const splash = $('splashScreen');
+    if (splash) splash.classList.add('hidden');
+  };
 
   let logoTapCount = 0;
   let logoTapTimer = null;
@@ -42,9 +65,12 @@
     }
     wireEvents();
     checkBackend();
+    updateDisclaimerOverlay();
   }
 
   function wireEvents() {
+    if (wireEvents.done) return;
+    wireEvents.done = true;
     // Setup
     $('setupPw').addEventListener('input', e => {
       const s = pwStrength(e.target.value);
@@ -87,7 +113,10 @@
       logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
       if (logoTapCount >= 7) {
         logoTapCount = 0;
-        showAdminScreen();
+        if (window.FabVault.isUnlocked()) {
+          setActiveTab('admin');
+          showAdminScreen();
+        } else alert('Bitte zuerst die App entsperren.');
       }
     });
 
@@ -113,14 +142,13 @@
         else if (tab === 'premium') {
           renderHome();
           show('screenHome');
-          const premiumPanel = document.getElementById('premiumPanel');
-          if (premiumPanel) premiumPanel.scrollIntoView({behavior:'smooth'});
+          scrollToBlock('premiumCard');
         }
         else if (tab === 'admin') showAdminScreen();
         else if (tab === 'chat') {
+          show('screenCommunity');
           if (window.__renderComm) window.__renderComm();
           if (window.__renderSupportChat) window.__renderSupportChat();
-          show('screenCommunity');
         }
       });
     });
@@ -128,57 +156,10 @@
     // Feature zurück
     $('featBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
     $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
-
-    // Backend & Werkzeuge
-    $('saveBackendBtn').addEventListener('click', () => {
-      const url = ($('adminBackend').value || '').trim().replace(/\/$/,'');
-      if (url && !/^https:\/\//i.test(url)) return alert('Nur HTTPS erlaubt.');
-      localStorage.setItem('fabmargin_backend_url', url);
-      $('adminBackendStatus').textContent = 'Gespeichert.';
-      checkBackend();
-    });
-    $('testBackendBtn').addEventListener('click', checkBackend);
-    $('setBackendBtn').addEventListener('click', () => show('screenAdmin'));
-    $('lockNowBtn').addEventListener('click', () => {
-      window.FabVault.lock();
-      sessionStorage.removeItem('__mpw');
-      show('screenLogin');
-    });
-    $('restoreBtn').addEventListener('click', async () => {
-      try { await window.PurchaseManager.restore(); alert('Käufe abgefragt.'); renderHome(); }
-      catch (e) { alert('Fehler: ' + e.message); }
-    });
-
-    // Passwort ändern
-    $('changePwBtn').addEventListener('click', async () => {
-      const o = $('oldPw').value, n1 = $('newPw1').value, n2 = $('newPw2').value;
-      if (n1.length < 12) return $('changePwStatus').textContent = 'Neues Passwort zu kurz.';
-      if (n1 !== n2) return $('changePwStatus').textContent = 'Neue Passwörter stimmen nicht überein.';
-      try {
-        await window.FabVault.changePassword(o, n1);
-        sessionStorage.setItem('__mpw', n1);
-        $('changePwStatus').textContent = '✅ Passwort geändert.';
-        $('oldPw').value = $('newPw1').value = $('newPw2').value = '';
-      } catch (e) { $('changePwStatus').textContent = '❌ ' + e.message; }
-    });
-
-    // Export & Wipe
-    $('exportVaultBtn').addEventListener('click', () => {
-      const blob = new Blob([localStorage.getItem('fabmargin_vault_v1') || '{}'], { type: 'application/json' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'fabmargin-vault-backup.json';
-      a.click();
-    });
-    $('wipeBtn').addEventListener('click', () => {
-      if (!confirm('ALLES löschen (Tresor + Käufe + Einstellungen)?')) return;
-      if (!confirm('Wirklich? Kein Zurück!')) return;
-      localStorage.clear(); sessionStorage.clear(); location.reload();
-    });
-
-    // Feature zurück
-    $('featBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
-    $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('commBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
+    $('legalBackBtn').addEventListener('click', () => { setActiveTab(lastMainScreen === 'screenAdmin' ? 'admin' : lastMainScreen === 'screenCommunity' ? 'chat' : 'home'); show(lastMainScreen); });
+    $('legalOpenBtn').addEventListener('click', openLegalScreen);
+    $('adminLegalOpenBtn').addEventListener('click', openLegalScreen);
 
     // Admin-Login
     $('adminLoginBtn').addEventListener('click', adminLogin);
@@ -233,10 +214,11 @@
       checkBackend();
     });
     $('testBackendBtn').addEventListener('click', checkBackend);
-    $('setBackendBtn').addEventListener('click', () => showAdminScreen());
+    $('setBackendBtn').addEventListener('click', () => { setActiveTab('admin'); showAdminScreen(); });
     $('lockNowBtn').addEventListener('click', () => {
       window.FabVault.lock();
       sessionStorage.removeItem('__mpw');
+      setActiveTab('home');
       show('screenLogin');
     });
     $('restoreBtn').addEventListener('click', async () => {
@@ -274,7 +256,18 @@
     // Auto-Lock-Event
     document.addEventListener('vault:locked', () => {
       sessionStorage.removeItem('__mpw');
+      setActiveTab('home');
       show('screenLogin');
+    });
+
+    $('disclaimerAccept').addEventListener('change', e => {
+      $('disclaimerContinueBtn').disabled = !e.target.checked;
+    });
+    $('disclaimerContinueBtn').addEventListener('click', () => {
+      localStorage.setItem(DISCLAIMER_KEY, 'accepted');
+      $('disclaimerAccept').checked = false;
+      $('disclaimerContinueBtn').disabled = true;
+      updateDisclaimerOverlay();
     });
     wireModalEvents();
   }
@@ -645,7 +638,7 @@
         el.className = 'feature-tile owned';
         el.innerHTML = `<div class="icon">${f.icon}</div>
           <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
-          <div style="text-align:right"><div class="price" style="color:#8ff0b3">${f.price}</div></div>`;
+          <div style="text-align:right"><div class="price" style="color:var(--green)">${f.price}</div></div>`;
         list.appendChild(el); return;
       }
       const el = document.createElement('div');
@@ -692,7 +685,7 @@
       ${content.sections ? content.sections.map(s => `
         <div class="step"><b>${s.title}</b><br><span class="small">${s.body}</span></div>
       `).join('') : ''}
-      ${content.demo ? `<div class="card" style="background:#0e1c36;margin-top:12px"><b>Demo</b><br><pre style="white-space:pre-wrap;font-size:12px">${content.demo}</pre></div>` : ''}
+      ${content.demo ? `<div class="card" style="background:#161616;margin-top:12px"><b>Demo</b><br><pre style="white-space:pre-wrap;font-size:12px">${content.demo}</pre></div>` : ''}
     `;
     $('featContent').innerHTML = html;
   }
@@ -717,7 +710,16 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      if (window.BetaSystem && typeof window.BetaSystem.checkBetaToken === 'function' && window.BetaSystem.checkBetaToken()) {
+        finishSplash();
+        return;
+      }
+      boot();
+      finishSplash();
+    }, SPLASH_DELAY_MS);
+  });
 })();
 
 // ------- Erweiterung v4: Beta-Tester + Anti-Piracy Admin-Panel -------
@@ -753,8 +755,6 @@
     if(!name||!email){alert('Name und E-Mail erforderlich.');return;}
     const d=await betaPost('/admin/beta/invite',{name,email});
     if(!d||!d.ok){alert('Fehler: '+(d&&d.error||'Unbekannt'));return;}
-    const base=getBase();
-    const link=base.replace('/api','').replace(':8787','').replace('backend','app')||location.origin;
     // Zeige generischen Link (App-URL + ?token=...)
     const fullLink=location.origin+location.pathname+'?token='+d.token;
     const linkDiv=$('betaGeneratedLink');
@@ -866,9 +866,8 @@
       if(card) card.classList.add('hidden');
     };
     if($('commBackBtn')) $('commBackBtn').onclick=()=>{
-      renderHome();
-      setActiveTab('home');
-      show('screenHome');
+      const homeBtn = document.querySelector('nav.bottom button[data-tab="home"]');
+      if (homeBtn) homeBtn.click();
     };
     if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
       const t=$('commTitle').value.trim(),x=$('commText').value.trim();

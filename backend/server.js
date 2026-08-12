@@ -342,7 +342,7 @@ const server = http.createServer(async (req, res) => {
       invite.usedBy = bj.username || ip;
       saveState();
       incident('beta_join', 'token=' + token + ' ip=' + ip, 'info');
-      return json(res, 200, { ok: true, role: 'beta', name: invite.name, email: invite.email }, origin);
+      return json(res, 200, { ok: true, role: 'beta', name: invite.name }, origin);
     }
 
     // -------- Sicherheit: Integritätsprüfung --------

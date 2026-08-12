@@ -23,7 +23,7 @@
     // WebDriver aktiv
     if(navigator.webdriver) flags.push('webdriver');
     // Anti-Tamper: prüfe ob wichtige Funktionen noch intakt sind
-    if(typeof g.CryptoVault==='undefined') flags.push('tamper_vault');
+    if(typeof g.FabVault==='undefined') flags.push('tamper_vault');
     // Report an Server
     const be=localStorage.getItem('fabmargin_backend_url')||'';
     if(flags.length&&be){

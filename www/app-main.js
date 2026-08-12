@@ -188,7 +188,7 @@
     $('adminRefreshBtn').addEventListener('click', adminLoadDashboard);
     $('adminLogoutBtn').addEventListener('click', () => {
       adminToken = null;
-      window.__adminSessionToken = null;
+      window.__getAdminToken = () => null;
       $('adminDashboard').classList.add('hidden');
       $('adminLoginBox').classList.remove('hidden');
       $('adminLoginUser').value = '';
@@ -337,7 +337,7 @@
       const d = await r.json();
       if (!d.ok) { $('adminLoginErr').textContent = '❌ ' + (d.error || 'Fehler'); return; }
       adminToken = d.token;
-      window.__adminSessionToken = d.token;
+      window.__getAdminToken = () => adminToken;
       $('adminLoginPw').value = '';
       $('adminLoginBox').classList.add('hidden');
       $('adminDashboard').classList.remove('hidden');
@@ -694,12 +694,10 @@
 // ------- Erweiterung v4: Beta-Tester + Anti-Piracy Admin-Panel -------
 (function(){
   const $=id=>document.getElementById(id);
-  let _adminToken=null;
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
   function getAdminToken(){
-    // Zugriff auf adminToken aus dem Haupt-Closure über ein window-Event-Trick nicht möglich –
-    // Wir lesen den Token über einen gespeicherten Wert
-    return window.__adminSessionToken||null;
+    return typeof window.__getAdminToken==='function'?window.__getAdminToken():null;
   }
   function getBase(){ return (localStorage.getItem('fabmargin_backend_url')||'').replace(/\/$/,''); }
 
@@ -745,21 +743,27 @@
     if(!d||!d.ok) return;
     const box=$('betaTesterList');
     if(!d.invites.length){box.innerHTML='<p class="muted small">Keine Beta-Einladungen.</p>';return;}
+    box.innerHTML='';
     const statusColor={offen:'#ffc35b',aktiv:'#45d483',abgelaufen:'#a9b8d4',widerrufen:'#ff6b75'};
-    box.innerHTML=d.invites.map(inv=>`
-      <div style="padding:8px 0;border-bottom:1px solid var(--line,#333)">
-        <div><strong>${inv.name}</strong> <span class="muted small">&lt;${inv.email}&gt;</span>
-          <span style="color:${statusColor[inv.status]||'#aaa'};margin-left:6px;font-size:12px">● ${inv.status}</span>
+    d.invites.forEach(inv=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div><strong>${esc(inv.name)}</strong> <span class="muted small">&lt;${esc(inv.email)}&gt;</span>
+          <span style="color:${statusColor[inv.status]||'#aaa'};margin-left:6px;font-size:12px">● ${esc(inv.status)}</span>
         </div>
-        <div class="muted small">Erstellt: ${(inv.createdAt||'').slice(0,10)} · Läuft ab: ${(inv.expiresAt||'').slice(0,10)}</div>
-        ${inv.usedBy?`<div class="muted small">Aktiviert von: ${inv.usedBy}</div>`:''}
-        ${!inv.revoked&&!inv.usedAt?`<button class="danger tiny" style="margin-top:4px" onclick="window.__betaRevoke('${inv.token}')">Widerrufen</button>`:''}
-      </div>`).join('');
-    window.__betaRevoke=async(token)=>{
-      if(!confirm('Einladung widerrufen?')) return;
-      await betaPost('/admin/beta/revoke/'+encodeURIComponent(token),{});
-      adminBetaLoadList();
-    };
+        <div class="muted small">Erstellt: ${esc((inv.createdAt||'').slice(0,10))} · Läuft ab: ${esc((inv.expiresAt||'').slice(0,10))}</div>
+        ${inv.usedBy?`<div class="muted small">Aktiviert von: ${esc(inv.usedBy)}</div>`:''}`;
+      if(!inv.revoked&&!inv.usedAt){
+        const btn=document.createElement('button');
+        btn.className='danger tiny'; btn.style.marginTop='4px'; btn.textContent='Widerrufen';
+        btn.onclick=()=>{
+          if(!confirm('Einladung widerrufen?')) return;
+          betaPost('/admin/beta/revoke/'+encodeURIComponent(inv.token),{}).then(()=>adminBetaLoadList());
+        };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
   }
 
   async function adminInstancesLoad(){
@@ -767,23 +771,24 @@
     if(!d||!d.ok) return;
     const box=$('instancesList');
     if(!d.instances.length){box.innerHTML='<p class="muted small">Keine Instanzen registriert.</p>';return;}
-    box.innerHTML=d.instances.map(inst=>`
-      <div style="padding:8px 0;border-bottom:1px solid var(--line,#333)">
-        <div class="muted small" style="font-family:monospace">${inst.instanceId}</div>
-        <div class="small">${inst.ips.length} IP(s): ${inst.ips.join(', ')}</div>
-        ${inst.blockedAt?`<div style="color:var(--red)">🚫 Gesperrt: ${inst.blockReason||''}</div>
-          <button class="tiny" style="margin-top:4px" onclick="window.__instanceUnblock('${inst.instanceId}')">Entsperren</button>`
-          :'<span style="color:var(--green)">✅ Aktiv</span>'}
-      </div>`).join('');
-    window.__instanceUnblock=async(id)=>{
-      await betaPost('/admin/instances/'+encodeURIComponent(id)+'/unblock',{});
-      adminInstancesLoad();
-    };
+    box.innerHTML='';
+    d.instances.forEach(inst=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div class="muted small" style="font-family:monospace">${esc(inst.instanceId)}</div>
+        <div class="small">${esc(String(inst.ips.length))} IP(s): ${esc(inst.ips.join(', '))}</div>
+        ${inst.blockedAt?`<div style="color:var(--red)">🚫 Gesperrt: ${esc(inst.blockReason||'')}</div>`:'<span style="color:var(--green)">✅ Aktiv</span>'}`;
+      if(inst.blockedAt){
+        const btn=document.createElement('button');
+        btn.className='tiny'; btn.style.marginTop='4px'; btn.textContent='Entsperren';
+        btn.onclick=()=>{ betaPost('/admin/instances/'+encodeURIComponent(inst.instanceId)+'/unblock',{}).then(()=>adminInstancesLoad()); };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
   }
 
   document.addEventListener('DOMContentLoaded',()=>{
-    // Admin-Token synchronisieren: wenn Admin-Login erfolgreich war,
-    // wird window.__adminSessionToken vom Haupt-Code gesetzt
     if($('betaInviteBtn')) $('betaInviteBtn').addEventListener('click',adminBetaInvite);
     if($('betaCopyLinkBtn')) $('betaCopyLinkBtn').addEventListener('click',()=>{
       const txt=$('betaLinkText');

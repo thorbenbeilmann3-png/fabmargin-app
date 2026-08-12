@@ -166,6 +166,70 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, token: createSession(), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
     }
 
+    // ------- User Auth -------
+
+    // Registrierung mit Aktivierungscode
+    if (u.pathname === '/auth/register' && req.method === 'POST') {
+      if (!rateOk('auth_reg:' + ip, 5, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      const { username, email, password, code } = b;
+      if (!username || !email || !password || !code) return json(res, 400, { ok: false, error: 'Alle Felder erforderlich' }, origin);
+      if (typeof username !== 'string' || username.length < 3 || username.length > 40) return json(res, 400, { ok: false, error: 'Benutzername muss 3–40 Zeichen lang sein' }, origin);
+      if (typeof password !== 'string' || password.length < 8) return json(res, 400, { ok: false, error: 'Passwort muss mindestens 8 Zeichen lang sein' }, origin);
+      if (state.users[username]) return json(res, 409, { ok: false, error: 'Benutzername bereits vergeben' }, origin);
+      const ac = state.activationCodes[code];
+      if (!ac) return json(res, 400, { ok: false, error: 'Ungültiger Aktivierungscode' }, origin);
+      if (ac.usedBy) return json(res, 400, { ok: false, error: 'Aktivierungscode wurde bereits verwendet' }, origin);
+      const salt = b64(crypto.randomBytes(16));
+      const passwordHash = hashPassword(password, salt);
+      state.users[username] = { email, passwordHash, salt, activatedAt: new Date().toISOString(), blocked: false };
+      state.activationCodes[code].usedBy = username;
+      state.activationCodes[code].usedAt = new Date().toISOString();
+      saveState();
+      const token = b64(crypto.randomBytes(32));
+      sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
+      incident('user_register', 'user=' + username, 'info');
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    // Login
+    if (u.pathname === '/auth/login' && req.method === 'POST') {
+      if (!rateOk('auth_login:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Versuche' }, origin);
+      const b = await body(req);
+      const { username, password } = b;
+      if (!username || !password) return json(res, 400, { ok: false, error: 'Benutzername und Passwort erforderlich' }, origin);
+      const user = state.users[username];
+      if (!user) return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
+      if (user.blocked) return json(res, 403, { ok: false, error: 'Konto gesperrt. Bitte den Support kontaktieren.' }, origin);
+      if (!safeEqual(hashPassword(password, user.salt), user.passwordHash)) {
+        incident('user_login_failed', 'user=' + username + ' ip=' + ip, 'warn');
+        return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
+      }
+      const token = b64(crypto.randomBytes(32));
+      sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
+      incident('user_login', 'user=' + username, 'info');
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    // Logout
+    if (u.pathname === '/auth/logout' && req.method === 'POST') {
+      const h = String(req.headers.authorization || '');
+      const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+      if (t) sessions.delete('user:' + t);
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Profil abrufen (geschützt)
+    if (u.pathname === '/auth/profile' && req.method === 'GET') {
+      const h = String(req.headers.authorization || '');
+      const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+      const sess = sessions.get('user:' + t);
+      if (!sess || sess.exp < Date.now()) { sessions.delete('user:' + t); return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin); }
+      const user = state.users[sess.username];
+      if (!user) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      return json(res, 200, { ok: true, username: sess.username, email: user.email, activatedAt: user.activatedAt, blocked: user.blocked }, origin);
+    }
+
     // Support-Chat: Nachricht speichern
     if (u.pathname === '/support/message' && req.method === 'POST') {
       if (!rateOk('support:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);

@@ -1,0 +1,60 @@
+FabMargin – Druckkosten & Margen kalkulieren für 3D-Druck-Profis
+
+FabMargin ist der intelligente Kalkulations-Assistent für 3D-Druck-Unternehmer, Maker und Freelancer. Mit FabMargin berechnest du in Sekunden, was dein Druck wirklich kostet – und zu welchem Preis du ihn verkaufen musst, um profitabel zu bleiben.
+
+─────────────────────────────────────────
+🖨️ DRUCKKOSTEN-KALKULATION
+─────────────────────────────────────────
+Gib Material, Druckzeit und Stromverbrauch ein – FabMargin berechnet sofort deine exakten Produktionskosten. Nie wieder unter Wert verkaufen!
+
+• Materialkosten (Filament, Resin, Pulver)
+• Druckzeit × Energiekosten
+• Maschinenabschreibung (individuell einstellbar)
+• Nachbearbeitungszeit & Arbeitskosten
+• Verpackung & Versand
+
+─────────────────────────────────────────
+📊 MARGENKALKULATION
+─────────────────────────────────────────
+Definiere deine Wunschmarge und lass FabMargin den optimalen Verkaufspreis berechnen. Vergleiche verschiedene Szenarien nebeneinander.
+
+• Marge in % oder als fester Aufschlag
+• Netto- und Bruttopreisanzeige (inkl. MwSt)
+• Szenario-Vergleich: Budget vs. Premium vs. Businesspreis
+
+─────────────────────────────────────────
+🤖 KI-ASSISTENT (optional)
+─────────────────────────────────────────
+Der integrierte KI-Assistent hilft dir bei Preisstrategie, Materialtipps und Optimierungsvorschlägen. Die KI-Funktionen sind vollständig opt-in – du entscheidest selbst, ob du sie nutzen möchtest.
+
+─────────────────────────────────────────
+🎖️ CREDIT-SYSTEM
+─────────────────────────────────────────
+Wähle das Paket das zu dir passt:
+• Starter – kostenlos, Grundfunktionen
+• Pro – erweiterte Kalkulation
+• Business – Team-Features
+• Ultra – voller Zugriff inkl. KI
+
+─────────────────────────────────────────
+👥 COMMUNITY
+─────────────────────────────────────────
+Teile Tipps, Materialempfehlungen und Preisstrategien mit anderen 3D-Druck-Profis. Stimme für die besten Community-Vorschläge ab und forme die App mit.
+
+─────────────────────────────────────────
+🔒 DATENSCHUTZ & SICHERHEIT
+─────────────────────────────────────────
+• Alle Daten werden lokal verarbeitet
+• Keine Weitergabe an Dritte
+• DSGVO-konform
+• KI-Features komplett abschaltbar (Opt-Out)
+• Transparente Datenschutzerklärung in der App
+
+─────────────────────────────────────────
+⚙️ TECHNISCH
+─────────────────────────────────────────
+• Läuft offline (Grundfunktionen)
+• Kein Account für Basisfunktionen nötig
+• Regelmäßige Updates & neue Features
+
+FabMargin – kalkuliere smarter, verdiene mehr. 🚀

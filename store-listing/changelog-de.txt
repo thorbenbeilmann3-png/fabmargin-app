@@ -1,0 +1,6 @@
+Version 1.0.0 – Erstveröffentlichung
+- Vollständige Druckkostenkalkulation
+- Credit-System (Starter bis Ultra)
+- Admin-Bereich mit KI-Assistent
+- Community-Vorschläge
+- Datenschutz & KI Opt-Out

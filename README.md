@@ -71,3 +71,53 @@ im Backend – nicht im „Verstecken" des Codes.
 6. In-App-Produkte in Play Console anlegen (siehe `docs/05-IN-APP-KAEUFE.md`).
 
 Ich helfe an jedem Schritt weiter – sagen Sie einfach, wo Sie stehen.
+
+---
+
+## 🛒 Google Play Store – Schritt-für-Schritt Anleitung
+
+### Schritt 1 – Keystore erstellen (einmalig)
+
+```bash
+keytool -genkey -v \
+  -keystore fabmargin-release.keystore \
+  -alias fabmargin \
+  -keyalg RSA -keysize 2048 \
+  -validity 10000
+```
+
+**Wichtig:** Den Keystore sicher aufbewahren – ohne ihn können keine Updates veröffentlicht werden!
+
+### Schritt 2 – GitHub Secrets hinterlegen
+
+Im GitHub Repository unter **Settings → Secrets and variables → Actions** folgende Secrets anlegen:
+
+| Secret | Inhalt |
+|--------|--------|
+| `KEYSTORE_FILE` | `base64 fabmargin-release.keystore` (Ausgabe des Befehls) |
+| `KEY_ALIAS` | z.B. `fabmargin` |
+| `KEY_PASSWORD` | Passwort des Keys |
+| `STORE_PASSWORD` | Passwort des Keystores |
+
+```bash
+# Keystore in Base64 konvertieren (für KEYSTORE_FILE Secret)
+base64 -w 0 fabmargin-release.keystore
+```
+
+### Schritt 3 – AAB bauen
+
+Den GitHub Actions Workflow **„Build FabMargin – APK & AAB"** manuell starten oder auf `main` pushen.  
+Danach unter **Actions → Artifacts** die Datei `FabMargin-release.aab` herunterladen.
+
+### Schritt 4 – Google Play Console
+
+1. Account erstellen (einmalig 25$): https://play.google.com/console
+2. Neue App anlegen
+3. AAB-Datei hochladen
+4. Store-Seite ausfüllen (Texte in `store-listing/`)
+5. Screenshots und Feature Graphic hochladen
+6. Datenschutzerklärung verlinken
+7. Inhalts-Rating ausfüllen (ca. 5 Min.)
+8. Veröffentlichung einreichen → Google prüft 3–7 Werktage
+
+📋 Vollständige Checkliste: [`store-listing/play-store-checklist.md`](store-listing/play-store-checklist.md)

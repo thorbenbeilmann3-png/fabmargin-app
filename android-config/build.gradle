@@ -1,0 +1,31 @@
+// android/app/build.gradle – Release-Signing-Konfiguration für FabMargin
+// Diese Konfiguration wird via `npx cap add android` in android/app/build.gradle eingebunden.
+
+android {
+    signingConfigs {
+        release {
+            // Keystore-Daten kommen aus GitHub Secrets (Umgebungsvariablen)
+            def keystoreFile = System.getenv("KEYSTORE_FILE")
+            if (keystoreFile != null && new File("fabmargin-release.keystore").exists()) {
+                storeFile file("fabmargin-release.keystore")
+                storePassword System.getenv("STORE_PASSWORD") ?: ""
+                keyAlias System.getenv("KEY_ALIAS") ?: ""
+                keyPassword System.getenv("KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Signierung nur wenn Keystore vorhanden, sonst unsigniert
+            def keystoreExists = new File("$projectDir/fabmargin-release.keystore").exists()
+            signingConfig keystoreExists ? signingConfigs.release : null
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            // Debug-Build bleibt unsigniert (zum Testen)
+            signingConfig null
+        }
+    }
+}

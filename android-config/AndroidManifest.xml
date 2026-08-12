@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- android/app/src/main/AndroidManifest.xml -->
+<!-- Erweiterte Konfiguration für Google Play Store -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.printprofit3d.fabmargin">
+
+    <!-- Pflicht: Internet-Zugriff für Backend-Kommunikation -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Optional: Kamera für zukünftige Scan-Features -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="FabMargin"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+            android:label="FabMargin"
+            android:launchMode="singleTask"
+            android:screenOrientation="unspecified"
+            android:exported="true"
+            android:theme="@style/AppTheme.NoActionBarLaunch">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>

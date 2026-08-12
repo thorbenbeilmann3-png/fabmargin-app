@@ -11,12 +11,17 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'security-state.json');
 const PORT = Number(process.env.PORT || 8787);
-const SECURITY_EMAIL = process.env.SECURITY_EMAIL || 'printprofit3d_business.stoneware127@passmail.net';
+const SECURITY_EMAIL = process.env.SECURITY_EMAIL || 'app.github.uncorrupt873@passmail.net';
 const RESEND_FROM = process.env.RESEND_FROM || '';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const DEV_OTP_LOG = process.env.DEV_OTP_LOG === 'true';
 const SECURITY_WEBHOOK_SECRET = process.env.SECURITY_WEBHOOK_SECRET || '';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const DEFAULT_AI_SETTINGS = Object.freeze({
+  recommendations: true,
+  analysis: true,
+  chatbot: true
+});
 
 // Google Play Developer API Zugangsdaten (Service-Account JSON als ENV oder Datei)
 const GOOGLE_PLAY_PACKAGE = process.env.GOOGLE_PLAY_PACKAGE || 'com.printprofit3d.fabmargin';
@@ -81,6 +86,11 @@ for (const user of Object.values(state.users)) {
   if (!Array.isArray(user.purchasedSlicerProfiles)) { user.purchasedSlicerProfiles = []; usersUpdated = true; }
   if (!Array.isArray(user.redeemedRewards)) { user.redeemedRewards = []; usersUpdated = true; }
   if (!user.role) { user.role = 'user'; usersUpdated = true; }
+  const normalizedAiSettings = normalizeAiSettings(user.aiSettings);
+  if (JSON.stringify(normalizedAiSettings) !== JSON.stringify(user.aiSettings || {})) {
+    user.aiSettings = normalizedAiSettings;
+    usersUpdated = true;
+  }
 }
 if (usersUpdated) saveState();
 
@@ -127,6 +137,7 @@ function getCurrentUser(req) {
   if (!Array.isArray(user.purchasedSlicerProfiles)) user.purchasedSlicerProfiles = [];
   if (!Array.isArray(user.redeemedRewards)) user.redeemedRewards = [];
   if (!user.role) user.role = 'user';
+  user.aiSettings = normalizeAiSettings(user.aiSettings);
   return { username: sess.username, token: sess.token, user };
 }
 function hasOperatorAccess(req) {
@@ -162,6 +173,21 @@ function roleFromInvite(email) {
   if (!invite) return 'user';
   invite.acceptedAt = new Date().toISOString();
   return 'operator';
+}
+function normalizeAiSettings(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    recommendations: source.recommendations !== false,
+    analysis: source.analysis !== false,
+    chatbot: source.chatbot !== false
+  };
+}
+function aiSettingsResponse(settings) {
+  const normalized = normalizeAiSettings(settings);
+  return {
+    settings: normalized,
+    allDisabled: !normalized.recommendations && !normalized.analysis && !normalized.chatbot
+  };
 }
 function sanitizeImage(input) {
   if (typeof input !== 'string') return null;
@@ -235,7 +261,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': origin || '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Security-Secret',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'
     });
     return res.end();
   }
@@ -306,7 +332,8 @@ const server = http.createServer(async (req, res) => {
         pointHistory: [],
         badges: [],
         notifications: [],
-        purchasedSlicerProfiles: []
+        purchasedSlicerProfiles: [],
+        aiSettings: { ...DEFAULT_AI_SETTINGS }
       };
       state.activationCodes[code].usedBy = username;
       state.activationCodes[code].usedAt = new Date().toISOString();
@@ -360,8 +387,34 @@ const server = http.createServer(async (req, res) => {
         points: user.points || 0,
         badges: user.badges || [],
         notifications: user.notifications || [],
-        purchasedSlicerProfiles: user.purchasedSlicerProfiles || []
+        purchasedSlicerProfiles: user.purchasedSlicerProfiles || [],
+        aiSettings: normalizeAiSettings(user.aiSettings)
       }, origin);
+    }
+
+    if (u.pathname === '/user/ai-settings' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      return json(res, 200, { ok: true, ...aiSettingsResponse(viewer.user.aiSettings) }, origin);
+    }
+
+    if (u.pathname === '/user/ai-settings' && req.method === 'PUT') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const b = await body(req);
+      const payload = b && typeof b.settings === 'object' ? b.settings : b;
+      const current = normalizeAiSettings(viewer.user.aiSettings);
+      const next = b && b.allDisabled === true
+        ? { recommendations: false, analysis: false, chatbot: false }
+        : {
+            recommendations: typeof payload.recommendations === 'boolean' ? payload.recommendations : current.recommendations,
+            analysis: typeof payload.analysis === 'boolean' ? payload.analysis : current.analysis,
+            chatbot: typeof payload.chatbot === 'boolean' ? payload.chatbot : current.chatbot
+          };
+      viewer.user.aiSettings = next;
+      saveState();
+      incident('user_ai_settings_updated', 'user=' + viewer.username, 'info');
+      return json(res, 200, { ok: true, ...aiSettingsResponse(next) }, origin);
     }
 
     // Support-Chat: Nachricht speichern

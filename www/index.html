@@ -109,6 +109,23 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .gallery-strip img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
 .note-box{background:#111;border:1px dashed #47301f;border-radius:14px;padding:12px}
 .tight-list{display:flex;flex-direction:column;gap:10px}
+.settings-stack{display:flex;flex-direction:column;gap:12px}
+.setting-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+.setting-row:last-child{border-bottom:0;padding-bottom:0}
+.setting-copy{flex:1;min-width:0}
+.setting-copy strong{display:block;font-size:14px}
+.setting-copy span{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.switch{position:relative;display:inline-flex;width:54px;height:32px;flex:0 0 auto}
+.switch input{opacity:0;width:0;height:0}
+.switch-slider{position:absolute;inset:0;border-radius:999px;background:#3a3a3a;transition:.2s}
+.switch-slider:before{content:'';position:absolute;width:24px;height:24px;left:4px;top:4px;border-radius:50%;background:#fff;transition:.2s}
+.switch input:checked + .switch-slider{background:linear-gradient(135deg,var(--accent),var(--accent-strong))}
+.switch input:checked + .switch-slider:before{transform:translateX(22px)}
+.legal-link-grid{display:grid;gap:10px}
+.legal-link-grid button{text-align:left}
+.legal-page-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.legal-page-nav button{width:auto}
+.ai-banner{background:#24180f;border:1px solid #5c3a23;color:#ffd6b8;padding:10px 12px;border-radius:14px;font-size:12px;margin:10px 0}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){
   header{padding-top:18px}
@@ -225,7 +242,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
     <span class="lock-badge ok">🔓 Tresor entsperrt</span>
     <div class="top-actions">
-      <button class="ghost tiny" id="legalOpenBtn">Impressum & Haftung</button>
+      <button class="ghost tiny" id="legalOpenBtn">Rechtliches</button>
     </div>
   </header>
   <main>
@@ -246,6 +263,62 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       </div>
     </div>
 
+    <div class="card hidden" id="userSettingsCard">
+      <h2>⚙️ Einstellungen</h2>
+      <div class="settings-stack">
+        <div>
+          <p class="section-intro"><strong>KI &amp; Privatsphäre</strong></p>
+          <p class="muted small">Deaktiviere einzelne KI-Funktionen oder arbeite komplett manuell. Wenn KI deaktiviert ist, werden keine KI-Empfehlungen erzeugt und keine Daten an KI-Funktionen weitergegeben.</p>
+          <div class="setting-row">
+            <div class="setting-copy">
+              <strong>KI-Empfehlungen</strong>
+              <span>Preisvorschläge, Druckkostenoptimierung und automatische Hinweise</span>
+            </div>
+            <label class="switch" for="aiRecommendationsToggle">
+              <input id="aiRecommendationsToggle" type="checkbox" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-copy">
+              <strong>KI-Analyse</strong>
+              <span>Automatische Bewertungen, Prüfungen und Analyse-Funktionen</span>
+            </div>
+            <label class="switch" for="aiAnalysisToggle">
+              <input id="aiAnalysisToggle" type="checkbox" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
+            <div class="setting-copy">
+              <strong>KI-Chatbot</strong>
+              <span>Automatische Antworten im Support-Chat</span>
+            </div>
+            <label class="switch" for="aiChatbotToggle">
+              <input id="aiChatbotToggle" type="checkbox" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="ghost tiny" id="aiDisableAllBtn">Alles deaktivieren</button>
+          </div>
+          <div id="aiSettingsStatus" class="small muted" style="margin-top:8px"></div>
+        </div>
+
+        <div>
+          <p class="section-intro"><strong>Rechtliches</strong></p>
+          <p class="muted small">Alle Rechtsseiten sind jederzeit direkt aus den Einstellungen erreichbar.</p>
+          <div class="legal-link-grid">
+            <button class="ghost tiny" data-open-legal="impressum">Impressum</button>
+            <button class="ghost tiny" data-open-legal="datenschutz">Datenschutzerklärung</button>
+            <button class="ghost tiny" data-open-legal="ki-richtlinie">KI-Richtlinie</button>
+            <button class="ghost tiny" data-open-legal="agb">AGB</button>
+            <button class="ghost tiny" data-open-legal="cookie">Cookie-Richtlinie</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card hero-card">
       <h2 id="cmsHeroTitle">Willkommen bei FabMargin 3D</h2>
       <p class="muted" id="cmsHeroText">Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.</p>
@@ -259,6 +332,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <div class="card" id="premiumCard">
       <h2 id="premiumHeadline">💳 Premium-Credits</h2>
       <p class="muted small">Credits werden für Premium-Funktionen verwendet. Sie verfallen nie.</p>
+      <div id="aiFeatureBanner" class="ai-banner">🤖 KI-generiert – Diese Empfehlung wurde automatisch erstellt.</div>
       <div id="creditBalance" style="font-size:22px;font-weight:900;margin:10px 0">Guthaben: <span id="creditBalanceNum">0</span> Credits</div>
       <div id="cmsPremiumTips" class="tight-list" style="margin-bottom:12px"></div>
       <div id="creditFeatureList"></div>
@@ -692,11 +766,12 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <button id="uLoginBtn">Anmelden</button>
         <button class="ghost" id="uRegisterSwitch">Registrieren</button>
       </div>
-      <p class="small muted" style="margin-top:10px">Passwort vergessen? Schreib uns eine E-Mail: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">Support kontaktieren</a></p>
+      <p class="small muted" style="margin-top:10px">Passwort vergessen? Schreib uns eine E-Mail: <a href="mailto:app.github.uncorrupt873@passmail.net" style="color:var(--accent)">Support kontaktieren</a></p>
     </div>
     <!-- Registrierungs-Formular -->
     <div class="card hidden" id="uRegisterBox"><h2>✉️ Registrieren</h2>
       <p class="muted small">Du benötigst einen Aktivierungscode, den du nach dem Kauf erhältst. Jeder Code kann nur einmal verwendet werden.</p>
+      <div class="warn">Bitte gib keinen echten Namen an – nutze einen Phantasienamen oder deinen Firmennamen. So schützt du deine Privatsphäre!</div>
       <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL" autocomplete="off">
       <label>Benutzername (3–40 Zeichen)</label><input id="uNewUser" autocomplete="username">
       <label>E-Mail-Adresse</label><input id="uEmail" type="email" autocomplete="email">
@@ -743,7 +818,8 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <input id="supportInput" placeholder="Nachricht schreiben…" style="flex:1" maxlength="500">
         <button id="supportSendBtn" style="flex-shrink:0">Senden</button>
       </div>
-      <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">printprofit3d_business.stoneware127@passmail.net</a></p>
+      <div id="aiChatBanner" class="ai-banner">🤖 KI-generiert – Diese Empfehlung wurde automatisch erstellt.</div>
+      <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:app.github.uncorrupt873@passmail.net" style="color:var(--accent)">app.github.uncorrupt873@passmail.net</a></p>
     </div>
 
     <div class="card hidden" id="operatorConsoleCard">
@@ -776,17 +852,89 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 
 <section id="screenLegal" class="hidden">
   <header>
-    <div class="brand"><img src="icon-192.png" alt=""> Impressum & Haftung</div>
+    <div class="brand"><img src="icon-192.png" alt=""> <span id="legalTitle">Rechtliches</span></div>
     <button class="ghost tiny" id="legalBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button>
   </header>
   <main>
-    <div class="card">
-      <h2>📄 Haftungsausschluss</h2>
-      <p class="legal-text">Diese App dient ausschließlich als Informations- und Orientierungshilfe. Alle Einstellungen, Empfehlungen und Profile sind unverbindliche Richtwerte. Der Entwickler übernimmt keinerlei Haftung für Schäden an Geräten, Druckern, Bauteilen oder sonstigen Gegenständen, die durch die Nutzung dieser App entstehen. Die Nutzung erfolgt auf eigene Verantwortung. Diese App ersetzt keine professionelle Beratung.</p>
+    <div class="card" data-legal-section="overview">
+      <h2>📚 Rechtliches</h2>
+      <p class="muted small">Wähle eine der separaten Rechtsseiten aus. Alle Seiten sind mobil optimiert und jederzeit über Einstellungen → Rechtliches erreichbar.</p>
+      <div class="legal-link-grid">
+        <button data-open-legal="impressum">Impressum</button>
+        <button data-open-legal="datenschutz">Datenschutzerklärung</button>
+        <button data-open-legal="ki-richtlinie">KI-Richtlinie</button>
+        <button data-open-legal="agb">AGB</button>
+        <button data-open-legal="cookie">Cookie-Richtlinie</button>
+      </div>
     </div>
-    <div class="card">
+    <div class="card hidden" data-legal-section="impressum">
       <h2>ℹ️ Impressum</h2>
-      <p class="muted small">Diese Seite bündelt den Haftungsausschluss der App in einer dauerhaft erreichbaren Ansicht.</p>
+      <p class="legal-text">Thorben Beilmann
+Kirchgasse 9
+55578 Wolfsheim
+E-Mail: app.github.uncorrupt873@passmail.net</p>
+      <div class="legal-page-nav">
+        <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
+      </div>
+    </div>
+    <div class="card hidden" data-legal-section="datenschutz">
+      <h2>🔒 Datenschutzerklärung (DSGVO)</h2>
+      <p class="legal-text">Wir speichern nur die Daten, die für die Nutzung der App notwendig sind: deinen selbst gewählten Benutzernamen, deine E-Mail-Adresse, App-Einstellungen, Freischaltungen, Druckprofile, Bilder und freiwillig eingereichte Inhalte wie Support-Nachrichten oder Community-Beiträge.
+
+Wir speichern bewusst keine echten Namen, Adressen oder andere unnötige personenbezogene Daten, sofern du sie nicht selbst eingibst. Bitte verwende daher einen Phantasienamen oder deinen Firmennamen.
+
+Zahlungsdaten werden nicht direkt von uns gespeichert. Zahlungen werden über externe Zahlungsdienste wie Stripe oder den jeweiligen App-Store-Anbieter verarbeitet.
+
+KI-Verarbeitung:
+„Zur Verarbeitung von Partner-Anfragen und Preisempfehlungen nutzen wir KI-gestützte Systeme. Eingaben werden zur Analyse verarbeitet aber nicht dauerhaft gespeichert. Deine Daten werden nicht zum Trainieren der KI verwendet. Du kannst KI-Funktionen jederzeit in Einstellungen → KI & Privatsphäre deaktivieren."
+
+Wir nutzen OpenAI/KI-Technologie für ausgewählte Empfehlungen und automatische Antworten. Wenn du KI-Funktionen deaktivierst, findet für diese Funktionen keine KI-Verarbeitung statt.</p>
+      <div class="legal-page-nav">
+        <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
+      </div>
+    </div>
+    <div class="card hidden" data-legal-section="ki-richtlinie">
+      <h2>🤖 FabMargin KI – So funktioniert es</h2>
+      <p class="legal-text">Unsere KI unterstützt bei Preisvorschlägen, Partner-Analysen, Empfehlungen und automatisierten Antworten.
+
+Die KI speichert keine persönlichen Daten dauerhaft und deine Daten werden nicht zum Training der KI verwendet.
+
+KI-Entscheidungen sind Empfehlungen. Es besteht kein Rechtsanspruch auf bestimmte Ergebnisse oder Bewertungen.
+
+Du kannst KI-Funktionen jederzeit in Einstellungen → KI & Privatsphäre deaktivieren und später wieder aktivieren.
+
+Einige Antworten werden automatisch durch KI generiert. Die KI ersetzt keine rechtliche oder geschäftliche Beratung.</p>
+      <div class="legal-page-nav">
+        <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
+      </div>
+    </div>
+    <div class="card hidden" data-legal-section="agb">
+      <h2>⚖️ AGB</h2>
+      <p class="legal-text">Die Nutzung der App erfolgt im Rahmen der jeweils bereitgestellten Funktionen und auf eigene Verantwortung.
+
+KI-generierte Inhalte, Preisvorschläge, Bewertungen und Antworten sind unverbindlich und stellen keine Zusage oder Garantie dar.
+
+Partner-Verträge und individuelle Vereinbarungen zwischen Nutzern sind rechtlich bindend und liegen in der Verantwortung der beteiligten Parteien.
+
+Missbrauch, Manipulation, Täuschung oder zweckwidrige Nutzung können zur sofortigen Sperrung des Kontos führen.
+
+Änderungen an diesen Bedingungen werden mindestens 30 Tage vor Inkrafttreten angekündigt.</p>
+      <div class="legal-page-nav">
+        <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
+      </div>
+    </div>
+    <div class="card hidden" data-legal-section="cookie">
+      <h2>🍪 Cookie-Richtlinie</h2>
+      <p class="legal-text">Die App speichert technisch notwendige lokale Daten wie Login-Status, Einstellungen, Kaufstände, Sicherungshinweise und Chat-Verläufe, damit Kernfunktionen zuverlässig arbeiten.
+
+Diese Speicherungen dienen ausschließlich dem Betrieb der App und der Darstellung deiner gewählten Einstellungen.
+
+Soweit KI-Funktionen betroffen sind, kannst du über Einstellungen → KI & Privatsphäre jederzeit ein Opt-out nutzen.
+
+Wenn du lokale Daten oder Cookies nicht mehr verwenden möchtest, kannst du sie in der App zurücksetzen oder löschen.</p>
+      <div class="legal-page-nav">
+        <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
+      </div>
     </div>
   </main>
   <nav class="bottom">
@@ -835,8 +983,8 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <h1 style="color:#ff4455;font-size:24px;margin:0 0 16px">Diese App-Kopie wurde gesperrt</h1>
     <p style="color:#ffaaaa;margin:0 0 20px;font-size:15px">Es wurde festgestellt, dass diese App-Instanz von zu vielen verschiedenen Geräten genutzt wird. Die App wurde zum Schutz vor Piraterie gesperrt.</p>
     <p style="color:#ffaaaa;margin:0 0 28px;font-size:15px">Bitte kaufe die offizielle Version.</p>
-    <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="display:inline-block;background:#ff4455;color:white;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">✉️ Kontakt aufnehmen</a>
-    <p class="muted small" style="margin-top:16px">printprofit3d_business.stoneware127@passmail.net</p>
+    <a href="mailto:app.github.uncorrupt873@passmail.net" style="display:inline-block;background:#ff4455;color:white;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">✉️ Kontakt aufnehmen</a>
+    <p class="muted small" style="margin-top:16px">app.github.uncorrupt873@passmail.net</p>
   </div>
 </div>
 

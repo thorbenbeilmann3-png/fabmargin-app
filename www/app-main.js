@@ -4,7 +4,16 @@
   const SCREEN_IDS = ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenUserLogin','screenCommunity','screenLegal','screenBeta'];
   const DISCLAIMER_KEY = 'fabmargin_disclaimer_v1';
   const SPLASH_DELAY_MS = 900;
+  const LEGAL_TITLES = {
+    overview: 'Rechtliches',
+    impressum: 'Impressum',
+    datenschutz: 'Datenschutzerklärung',
+    'ki-richtlinie': 'KI-Richtlinie',
+    agb: 'AGB',
+    cookie: 'Cookie-Richtlinie'
+  };
   let lastMainScreen = 'screenHome';
+  let currentLegalPage = 'overview';
   const show = (id) => {
     SCREEN_IDS.forEach(s => $(s).classList.toggle('hidden', s !== id));
     if (['screenHome', 'screenAdmin', 'screenCommunity'].includes(id)) lastMainScreen = id;
@@ -20,7 +29,16 @@
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const openLegalScreen = () => {
+  const renderLegalPage = (page = 'overview') => {
+    currentLegalPage = LEGAL_TITLES[page] ? page : 'overview';
+    document.querySelectorAll('[data-legal-section]').forEach(el => {
+      el.classList.toggle('hidden', el.dataset.legalSection !== currentLegalPage);
+    });
+    if ($('legalTitle')) $('legalTitle').textContent = LEGAL_TITLES[currentLegalPage] || LEGAL_TITLES.overview;
+  };
+
+  const openLegalScreen = (page = 'overview') => {
+    renderLegalPage(page);
     show('screenLegal');
     setActiveTab('');
   };
@@ -159,8 +177,11 @@
     $('adminBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
     $('commBackBtn').addEventListener('click', () => { renderHome(); setActiveTab('home'); show('screenHome'); });
     $('legalBackBtn').addEventListener('click', () => { setActiveTab(lastMainScreen === 'screenAdmin' ? 'admin' : lastMainScreen === 'screenCommunity' ? 'chat' : 'home'); show(lastMainScreen); });
-    $('legalOpenBtn').addEventListener('click', openLegalScreen);
-    $('adminLegalOpenBtn').addEventListener('click', openLegalScreen);
+    $('legalOpenBtn').addEventListener('click', () => openLegalScreen('overview'));
+    $('adminLegalOpenBtn').addEventListener('click', () => openLegalScreen('overview'));
+    document.querySelectorAll('[data-open-legal]').forEach(btn => {
+      btn.addEventListener('click', () => openLegalScreen(btn.dataset.openLegal || 'overview'));
+    });
 
     // Admin-Login
     $('adminLoginBtn').addEventListener('click', adminLogin);
@@ -537,15 +558,18 @@
     if (!list || !window.CREDIT_FEATURES) return;
     list.innerHTML = '';
     const state = window.CreditManager ? window.CreditManager.getHistory() : [];
+    const aiSettings = currentAiSettings();
     window.CREDIT_FEATURES.forEach(f => {
       const unlocked = f.oneTime && state.some(h => h.type === 'use_feature' && h.featureId === f.id);
+      const aiGroup = featureAiGroup(f.id);
+      const disabledByAi = aiGroup && aiSettings[aiGroup] === false;
       const el = document.createElement('div');
       el.className = 'feature-tile';
       el.innerHTML = `<div class="icon">${f.icon}</div>
-        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p></div>
+        <div class="body"><h3>${f.title}</h3><p>${f.subtitle}</p>${disabledByAi ? `<p class="small" style="color:var(--amber);margin-top:6px">${aiFeatureBlockedMessage(aiGroup)}</p>` : ''}</div>
         <div style="text-align:right">
           <div class="price" style="color:var(--amber)">${f.credits} Credit${f.credits > 1 ? 's' : ''}</div>
-          <button class="tiny" style="margin-top:6px">${unlocked ? '✓ Aktiv' : (f.oneTime ? 'Freischalten' : 'Nutzen')}</button>
+          <button class="tiny" style="margin-top:6px" ${disabledByAi ? 'disabled' : ''}>${disabledByAi ? 'Deaktiviert' : (unlocked ? '✓ Aktiv' : (f.oneTime ? 'Freischalten' : 'Nutzen'))}</button>
         </div>`;
       el.querySelector('button').onclick = () => useCreditFeature(f);
       list.appendChild(el);
@@ -553,6 +577,11 @@
   }
 
   async function useCreditFeature(f) {
+    const aiGroup = featureAiGroup(f.id);
+    if (aiGroup && currentAiSettings()[aiGroup] === false) {
+      alert('⚠️ ' + aiFeatureBlockedMessage(aiGroup));
+      return;
+    }
     const bal = window.CreditManager ? window.CreditManager.getBalance() : 0;
     if (bal < f.credits) {
       showNoCreditsModal();
@@ -907,7 +936,23 @@
 (function(){
   const STORAGE_KEY = 'fabmargin_support_chat';
   const BOT_NAME = 'Support-Bot';
-  const CONTACT_EMAIL = 'printprofit3d_business.stoneware127@passmail.net';
+  const CONTACT_EMAIL = 'app.github.uncorrupt873@passmail.net';
+
+  function getAiSettings() {
+    return window.FabAiSettings && typeof window.FabAiSettings.get === 'function'
+      ? window.FabAiSettings.get()
+      : { recommendations: true, analysis: true, chatbot: true };
+  }
+
+  function chatbotEnabled() {
+    return getAiSettings().chatbot !== false;
+  }
+
+  function renderAiChatBanner() {
+    const banner = document.getElementById('aiChatBanner');
+    if (!banner) return;
+    banner.classList.toggle('hidden', !chatbotEnabled());
+  }
 
   function loadMessages() {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e) { return []; }
@@ -943,6 +988,7 @@
   function renderChat() {
     const el = document.getElementById('supportMessages');
     if (!el) return;
+    renderAiChatBanner();
     const msgs = loadMessages();
     if (!msgs.length) {
       el.innerHTML = '<p class="muted small" style="text-align:center;padding:16px 0">Noch keine Nachrichten. Schreib uns – wir helfen gerne! 👋</p>';
@@ -976,6 +1022,8 @@
         });
       } catch(e) { /* ignorieren – lokal gespeichert */ }
     }
+
+    if (!chatbotEnabled()) return;
 
     // Bot-Antwort
     setTimeout(() => {
@@ -1017,6 +1065,7 @@
     }
 
     renderChat();
+    document.addEventListener('fabmargin:ai-settings-changed', renderAiChatBanner);
   });
 
   async function loadAdminSupportMessages() {
@@ -1055,6 +1104,12 @@
   const USER_KEY = 'fabmargin_user_v1';
   const DIAG_SENT_KEY = 'fabmargin_diag_sent_v1';
   const PROFILE_POINT_COST = 40;
+  const DEFAULT_AI_SETTINGS = Object.freeze({ recommendations: true, analysis: true, chatbot: true });
+  const AI_FEATURE_GROUPS = {
+    recommendations: new Set(['cf_print_check', 'cf_profit_check']),
+    analysis: new Set(['cf_print_doctor', 'cf_verified_profile']),
+    chatbot: new Set(['cf_print_brain'])
+  };
   const $ = id => document.getElementById(id);
   let cachedProfile = null;
   let selectedImages = [];
@@ -1073,6 +1128,34 @@
     const user = currentUser();
     if (!user) return;
     localStorage.setItem(USER_KEY, JSON.stringify({ ...user, ...patch }));
+  }
+  function normalizeAiSettings(settings){
+    const source = settings && typeof settings === 'object' ? settings : {};
+    return {
+      recommendations: source.recommendations !== false,
+      analysis: source.analysis !== false,
+      chatbot: source.chatbot !== false
+    };
+  }
+  function currentAiSettings(){
+    return normalizeAiSettings(cachedProfile?.aiSettings || currentUser()?.aiSettings || DEFAULT_AI_SETTINGS);
+  }
+  function emitAiSettingsChanged(settings){
+    const normalized = normalizeAiSettings(settings);
+    window.FabAiSettings = {
+      get: () => ({ ...normalized }),
+      isEnabled: (key) => normalized[key] !== false
+    };
+    document.dispatchEvent(new CustomEvent('fabmargin:ai-settings-changed', { detail: normalized }));
+  }
+  function featureAiGroup(featureId){
+    return Object.entries(AI_FEATURE_GROUPS).find(([, ids]) => ids.has(featureId))?.[0] || '';
+  }
+  function aiFeatureBlockedMessage(group){
+    if (group === 'recommendations') return 'KI-Empfehlungen sind deaktiviert. Aktiviere sie in Einstellungen → KI & Privatsphäre.';
+    if (group === 'analysis') return 'KI-Analyse ist deaktiviert. Aktiviere sie in Einstellungen → KI & Privatsphäre.';
+    if (group === 'chatbot') return 'KI-Chatbot ist deaktiviert. Aktiviere ihn in Einstellungen → KI & Privatsphäre.';
+    return 'Diese KI-Funktion ist aktuell deaktiviert.';
   }
   function adminToken(){
     return typeof window.__getAdminToken === 'function' ? window.__getAdminToken() : '';
@@ -1128,6 +1211,100 @@
     bar.style.background = color;
     text.textContent = 'Stärke: ' + (input.value ? label : '–');
     text.style.color = input.value ? color : 'var(--muted)';
+  }
+  function renderAiSettings(settings = currentAiSettings()){
+    const localUser = currentUser();
+    const box = $('userSettingsCard');
+    const normalized = normalizeAiSettings(settings);
+    if (box) box.classList.toggle('hidden', !localUser);
+    if ($('aiFeatureBanner')) $('aiFeatureBanner').classList.toggle('hidden', !normalized.recommendations && !normalized.analysis && !normalized.chatbot);
+    emitAiSettingsChanged(normalized);
+    if (!localUser) return;
+    if ($('aiRecommendationsToggle')) $('aiRecommendationsToggle').checked = normalized.recommendations;
+    if ($('aiAnalysisToggle')) $('aiAnalysisToggle').checked = normalized.analysis;
+    if ($('aiChatbotToggle')) $('aiChatbotToggle').checked = normalized.chatbot;
+    if ($('aiSettingsStatus')) {
+      $('aiSettingsStatus').textContent = normalized.recommendations || normalized.analysis || normalized.chatbot
+        ? 'KI-Funktionen können jederzeit einzeln deaktiviert oder wieder aktiviert werden.'
+        : 'Komplett manuell aktiv – alle KI-Funktionen sind derzeit deaktiviert.';
+    }
+  }
+  async function saveAiSettings(nextSettings){
+    if (!window.UserAuth || typeof window.UserAuth.updateAiSettings !== 'function') throw new Error('KI-Einstellungen sind gerade nicht verfügbar');
+    const result = await window.UserAuth.updateAiSettings({ settings: nextSettings });
+    const normalized = normalizeAiSettings(result.settings);
+    cachedProfile = { ...(cachedProfile || {}), aiSettings: normalized };
+    saveCurrentUserPatch({ aiSettings: normalized });
+    renderAiSettings(normalized);
+    return normalized;
+  }
+  async function loadAiSettings(){
+    if (!userToken()) {
+      renderAiSettings(DEFAULT_AI_SETTINGS);
+      return DEFAULT_AI_SETTINGS;
+    }
+    if (!window.UserAuth || typeof window.UserAuth.getAiSettings !== 'function') {
+      renderAiSettings(currentAiSettings());
+      return currentAiSettings();
+    }
+    try {
+      const result = await window.UserAuth.getAiSettings();
+      const normalized = normalizeAiSettings(result.settings);
+      cachedProfile = { ...(cachedProfile || {}), aiSettings: normalized };
+      saveCurrentUserPatch({ aiSettings: normalized });
+      renderAiSettings(normalized);
+      return normalized;
+    } catch {
+      renderAiSettings(currentAiSettings());
+      return currentAiSettings();
+    }
+  }
+  function bindAiSettingsControls() {
+    const status = $('aiSettingsStatus');
+    const bindToggle = (id, key) => {
+      if (!$(id)) return;
+      $(id).addEventListener('change', async e => {
+        const next = { ...currentAiSettings(), [key]: !!e.target.checked };
+        try {
+          if (status) {
+            status.style.color = 'var(--muted)';
+            status.textContent = 'Speichere KI-Einstellungen…';
+          }
+          await saveAiSettings(next);
+          if (status) {
+            status.style.color = 'var(--green)';
+            status.textContent = '✅ KI-Einstellungen gespeichert.';
+          }
+        } catch (err) {
+          e.target.checked = currentAiSettings()[key];
+          if (status) {
+            status.style.color = 'var(--red)';
+            status.textContent = '❌ ' + err.message;
+          }
+        }
+      });
+    };
+    bindToggle('aiRecommendationsToggle', 'recommendations');
+    bindToggle('aiAnalysisToggle', 'analysis');
+    bindToggle('aiChatbotToggle', 'chatbot');
+    if ($('aiDisableAllBtn')) $('aiDisableAllBtn').addEventListener('click', async () => {
+      try {
+        if (status) {
+          status.style.color = 'var(--muted)';
+          status.textContent = 'Deaktiviere alle KI-Funktionen…';
+        }
+        await saveAiSettings({ recommendations: false, analysis: false, chatbot: false });
+        if (status) {
+          status.style.color = 'var(--green)';
+          status.textContent = '✅ Alle KI-Funktionen wurden deaktiviert.';
+        }
+      } catch (err) {
+        if (status) {
+          status.style.color = 'var(--red)';
+          status.textContent = '❌ ' + err.message;
+        }
+      }
+    });
   }
   async function copyToClipboard(text) {
     if (!text) return;
@@ -1194,17 +1371,20 @@
     if (!userToken()) {
       cachedProfile = null;
       renderProfileDetails();
+      renderAiSettings(DEFAULT_AI_SETTINGS);
       return null;
     }
     try {
       const data = await api('/auth/profile', { auth: 'user' });
+      data.aiSettings = normalizeAiSettings(data.aiSettings);
       cachedProfile = data;
-      saveCurrentUserPatch({ username: data.username, email: data.email, role: data.role, points: data.points });
+      saveCurrentUserPatch({ username: data.username, email: data.email, role: data.role, points: data.points, aiSettings: data.aiSettings });
       renderProfileDetails();
       return data;
     } catch {
       cachedProfile = null;
       renderProfileDetails();
+      renderAiSettings(DEFAULT_AI_SETTINGS);
       return null;
     }
   }
@@ -1226,6 +1406,7 @@
       ).join('') : '';
     }
     if ($('operatorConsoleCard')) $('operatorConsoleCard').classList.toggle('hidden', profile?.role !== 'operator');
+    renderAiSettings(profile?.aiSettings || localUser?.aiSettings || DEFAULT_AI_SETTINGS);
     if ($('slicerMarketplaceStatus')) {
       $('slicerMarketplaceStatus').textContent = profile?.username
         ? `Angemeldet als ${profile.username}. Profilkäufe kosten ${PROFILE_POINT_COST} Punkte.`
@@ -1569,6 +1750,7 @@
   async function refreshHome(){
     await loadCmsContent();
     await loadProfileData();
+    await loadAiSettings();
     await loadPoints();
     await loadMarketplace();
     await refreshOperatorConsole();
@@ -1580,6 +1762,7 @@
   }
   document.addEventListener('DOMContentLoaded', () => {
     bindPasswordGenerator();
+    bindAiSettingsControls();
     if ($('slicerImages')) $('slicerImages').addEventListener('change', () => { handleImageSelection().catch(() => {}); });
     if ($('slicerProfileForm')) $('slicerProfileForm').addEventListener('submit', submitSlicerProfile);
     if ($('adminLoadSlicerBtn')) $('adminLoadSlicerBtn').addEventListener('click', () => { loadAdminSlicer().catch(() => {}); });
@@ -1594,5 +1777,6 @@
     window.addEventListener('unhandledrejection', () => { jsErrorCount++; maybeSendDiagnostics('unhandledrejection'); });
     setInterval(() => { maybeSendDiagnostics('interval'); }, 15000);
   });
+  emitAiSettingsChanged(DEFAULT_AI_SETTINGS);
   window.Part7 = { refreshHome, refreshAdmin };
 })();

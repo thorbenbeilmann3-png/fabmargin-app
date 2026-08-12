@@ -41,7 +41,7 @@ Business
 admin, security, 3d-printing, printprofit, business
 
 ## Kontakt-E-Mail
-printprofit3d_business.stoneware127@passmail.net
+app.github.uncorrupt873@passmail.net
 
 ## Website
 (Ihre Website – muss noch hinzugefügt werden)

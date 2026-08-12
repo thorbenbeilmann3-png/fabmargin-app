@@ -6,7 +6,7 @@
 
 [Ihr Name / Firma]
 [Ihre Adresse]
-E-Mail: printprofit3d_business.stoneware127@passmail.net
+E-Mail: app.github.uncorrupt873@passmail.net
 
 ## 2. Welche Daten wir verarbeiten
 

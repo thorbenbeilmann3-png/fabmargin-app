@@ -17,10 +17,10 @@
   async function activate(code,username,password,email){
     return register(username,email,password,code);
   }
-  async function login(username,password){
+  async function login(username,password,totpCode){
     const be=beUrl();
     if(!be) throw new Error('Backend nicht eingestellt');
-    const r=await fetch(be+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})});
+    const r=await fetch(be+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,totpCode})});
     const j=await r.json();
     if(!j.ok) throw new Error(j.error||'Login fehlgeschlagen');
     const prev=get()||{};

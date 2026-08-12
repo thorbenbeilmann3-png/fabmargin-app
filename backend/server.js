@@ -12,10 +12,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'security-state.json');
 const PORT = Number(process.env.PORT || 8787);
 const SECURITY_EMAIL = process.env.SECURITY_EMAIL || 'app.github.uncorrupt873@passmail.net';
+const PARTNER_EMAIL = process.env.PARTNER_EMAIL || 'app.github.uncorrupt873@passmail.net';
 const RESEND_FROM = process.env.RESEND_FROM || '';
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const DEV_OTP_LOG = process.env.DEV_OTP_LOG === 'true';
 const SECURITY_WEBHOOK_SECRET = process.env.SECURITY_WEBHOOK_SECRET || '';
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://fabmargin.app';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 const DEFAULT_AI_SETTINGS = Object.freeze({
   recommendations: true,
@@ -57,11 +61,19 @@ function safeEqual(a, b) {
 function initialState() {
   const salt = b64(crypto.randomBytes(24));
   return {
-    version: 2,
+    version: 3,
     admin: { username: process.env.ADMIN_USERNAME, salt, passwordHash: hashPassword(process.env.ADMIN_PASSWORD, salt), updatedAt: new Date().toISOString() },
     reset: null,
     security: { failedLogins: 0, purchasesPaused: false, pauseReason: '', incidents: [] },
-    purchases: {}  // purchaseToken -> {sku, verifiedAt, orderId}
+    purchases: {},  // purchaseToken -> {sku, verifiedAt, orderId}
+    partnerRequests: [],
+    paymentSessions: {},
+    partnerNotifications: [],
+    bannerSlots: [
+      { id: 'slot_top', position: 'oben', label: 'Premium', priceRange: '300-500€/Monat', slotNumber: 1 },
+      { id: 'slot_middle', position: 'mitte', label: 'Standard', priceRange: '150-300€/Monat', slotNumber: 2 },
+      { id: 'slot_bottom', position: 'unten', label: 'Footer', priceRange: '100-200€/Monat', slotNumber: 3 }
+    ]
   };
 }
 function loadState() { try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch { return initialState(); } }
@@ -79,6 +91,17 @@ if (!state.slicerProfiles) { state.slicerProfiles = []; saveState(); }
 if (!state.operatorRequests) { state.operatorRequests = []; saveState(); }
 if (!state.operatorInvites) { state.operatorInvites = {}; saveState(); }
 if (!state.diagnostics) { state.diagnostics = []; saveState(); }
+if (!state.partnerRequests) { state.partnerRequests = []; saveState(); }
+if (!state.paymentSessions) { state.paymentSessions = {}; saveState(); }
+if (!state.partnerNotifications) { state.partnerNotifications = []; saveState(); }
+if (!state.bannerSlots) {
+  state.bannerSlots = [
+    { id: 'slot_top', position: 'oben', label: 'Premium', priceRange: '300-500€/Monat', slotNumber: 1 },
+    { id: 'slot_middle', position: 'mitte', label: 'Standard', priceRange: '150-300€/Monat', slotNumber: 2 },
+    { id: 'slot_bottom', position: 'unten', label: 'Footer', priceRange: '100-200€/Monat', slotNumber: 3 }
+  ];
+  saveState();
+}
 if (!state.cmsContent) {
   state.cmsContent = {
     heroTitle: 'Willkommen bei FabMargin 3D',
@@ -106,6 +129,9 @@ for (const user of Object.values(state.users)) {
     user.aiSettings = normalizedAiSettings;
     usersUpdated = true;
   }
+  const before = JSON.stringify(user);
+  ensureUserDefaults(user);
+  if (before !== JSON.stringify(user)) usersUpdated = true;
 }
 if (usersUpdated) saveState();
 
@@ -125,7 +151,8 @@ function json(res, status, obj, origin) {
   if (origin) headers['Access-Control-Allow-Origin'] = origin;
   res.writeHead(status, headers); res.end(JSON.stringify(obj));
 }
-async function body(req, maxLen = 32768) { let s = ''; for await (const c of req) { s += c; if (s.length > maxLen) throw new Error('Payload zu groß'); } return s ? JSON.parse(s) : {}; }
+async function rawBody(req, maxLen = 32768) { let s = ''; for await (const c of req) { s += c; if (s.length > maxLen) throw new Error('Payload zu groß'); } return s; }
+async function body(req, maxLen = 32768) { const s = await rawBody(req, maxLen); return s ? JSON.parse(s) : {}; }
 function originAllowed(req) { const o = req.headers.origin; if (!o) return ''; if (allowedOrigins.length && !allowedOrigins.includes(o)) return null; return o; }
 function bearerToken(req) {
   const h = String(req.headers.authorization || '');
@@ -153,6 +180,7 @@ function getCurrentUser(req) {
   if (!Array.isArray(user.redeemedRewards)) user.redeemedRewards = [];
   if (!user.role) user.role = 'user';
   user.aiSettings = normalizeAiSettings(user.aiSettings);
+  ensureUserDefaults(user);
   return { username: sess.username, token: sess.token, user };
 }
 function hasOperatorAccess(req) {
@@ -166,6 +194,25 @@ function notifyUser(username, message, type = 'info') {
   if (!Array.isArray(user.notifications)) user.notifications = [];
   user.notifications.unshift({ id: crypto.randomUUID(), type, message, createdAt: new Date().toISOString(), read: false });
   user.notifications = user.notifications.slice(0, 30);
+}
+function ensureUserDefaults(user) {
+  if (!user || typeof user !== 'object') return user;
+  if (typeof user.points !== 'number') user.points = 0;
+  if (!Array.isArray(user.pointHistory)) user.pointHistory = [];
+  if (!Array.isArray(user.badges)) user.badges = [];
+  if (!Array.isArray(user.notifications)) user.notifications = [];
+  if (!Array.isArray(user.purchasedSlicerProfiles)) user.purchasedSlicerProfiles = [];
+  if (!Array.isArray(user.redeemedRewards)) user.redeemedRewards = [];
+  if (!Array.isArray(user.purchases)) user.purchases = [];
+  if (!Array.isArray(user.devices)) user.devices = [];
+  if (!user.settings || typeof user.settings !== 'object') user.settings = {};
+  if (typeof user.settings.bannerEnabled !== 'boolean') user.settings.bannerEnabled = true;
+  if (!user.twoFactor || typeof user.twoFactor !== 'object') user.twoFactor = {};
+  if (typeof user.twoFactor.enabled !== 'boolean') user.twoFactor.enabled = false;
+  if (!Array.isArray(user.twoFactor.backupCodeHashes)) user.twoFactor.backupCodeHashes = [];
+  if (!Array.isArray(user.twoFactor.recoveryCodesPreview)) user.twoFactor.recoveryCodesPreview = [];
+  if (!user.role) user.role = 'user';
+  return user;
 }
 function addPoints(username, amount, reason) {
   const user = state.users[username];
@@ -189,13 +236,352 @@ function roleFromInvite(email) {
   invite.acceptedAt = new Date().toISOString();
   return 'operator';
 }
+function escapePdfText(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)').replace(/\r?\n/g, ' ');
+}
+function createSimplePdfBase64(lines) {
+  const clean = lines.map(line => escapePdfText(line)).filter(Boolean);
+  const content = [
+    'BT',
+    '/F1 12 Tf',
+    '50 780 Td',
+    ...clean.flatMap((line, index) => (index === 0 ? [`(${line}) Tj`] : ['0 -18 Td', `(${line}) Tj`])),
+    'ET'
+  ].join('\n');
+  const objects = [];
+  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+  objects[2] = '<< /Type /Pages /Kids [3 0 R] /Count 1 >>';
+  objects[3] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>';
+  objects[4] = `<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`;
+  objects[5] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>';
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (let i = 1; i <= 5; i++) {
+    offsets[i] = Buffer.byteLength(pdf, 'utf8');
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(off => `${String(off).padStart(10, '0')} 00000 n `).join('\n')}\n`;
+  pdf += `trailer << /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, 'utf8').toString('base64');
+}
+function base32Encode(buffer) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0, value = 0, output = '';
+  for (const byte of buffer) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += alphabet[(value << (5 - bits)) & 31];
+  return output;
+}
+function base32Decode(input) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const clean = String(input || '').toUpperCase().replace(/[^A-Z2-7]/g, '');
+  let bits = 0, value = 0;
+  const bytes = [];
+  for (const char of clean) {
+    const idx = alphabet.indexOf(char);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+function generateTotpSecret() {
+  return base32Encode(crypto.randomBytes(20));
+}
+function hotp(secret, counter) {
+  const key = base32Decode(secret);
+  const msg = Buffer.alloc(8);
+  msg.writeBigUInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', key).update(msg).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) | ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
+  return String(code % 1000000).padStart(6, '0');
+}
+function verifyTotp(secret, code, window = 1) {
+  const clean = String(code || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(clean)) return false;
+  const counter = Math.floor(Date.now() / 30000);
+  for (let offset = -window; offset <= window; offset++) {
+    if (hotp(secret, counter + offset) === clean) return true;
+  }
+  return false;
+}
+function hashRecoveryCode(code) {
+  return crypto.createHash('sha256').update(String(code || '').trim().toUpperCase()).digest('hex');
+}
+function generateRecoveryCodes() {
+  const codes = [];
+  for (let i = 0; i < 8; i++) {
+    codes.push(b64(crypto.randomBytes(6)).replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 10));
+  }
+  return codes;
+}
+function getDeviceId(req) {
+  const explicit = String(req.headers['x-device-id'] || '').trim();
+  if (explicit) return explicit.slice(0, 80);
+  const raw = `${req.headers['user-agent'] || 'unknown'}|${req.socket.remoteAddress || 'unknown'}`;
+  return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 24);
+}
+function rememberDevice(username, req) {
+  const user = ensureUserDefaults(state.users[username]);
+  if (!user) return [];
+  const deviceId = getDeviceId(req);
+  const label = String(req.headers['user-agent'] || 'Unbekanntes Gerät').slice(0, 180);
+  const existing = user.devices.find(item => item.id === deviceId);
+  if (existing) {
+    existing.lastSeenAt = new Date().toISOString();
+    existing.label = label;
+  } else {
+    user.devices.unshift({ id: deviceId, label, createdAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() });
+    user.devices = user.devices.slice(0, 20);
+  }
+  return user.devices;
+}
+function activePartnerByCategory(category) {
+  return (state.partnerRequests || []).find(item => item.status === 'approved' && item.category === category) || null;
+}
+function normalizePartnerCategory(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw.includes('filament')) return 'Filament';
+  if (raw.includes('drucker') || raw.includes('printer')) return 'Drucker';
+  if (raw.includes('software') || raw.includes('slicer')) return 'Software';
+  if (raw.includes('zubeh') || raw.includes('access')) return 'Zubehör';
+  return 'Zubehör';
+}
+function normalizeHttpsUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
+}
+function partnerTier(printerValue) {
+  const value = Number(printerValue || 0);
+  if (value > 1500) return { status: 'VIP PREMIUM', minFilamentPerMonth: 4, minTermYears: 1, maxTermYears: 3, freeTerm: true, slotNumber: 1, monthlyRange: '300-500€', vip: true };
+  if (value >= 800) return { status: 'VIP', minFilamentPerMonth: 3, minTermYears: 2, maxTermYears: 3, freeTerm: false, slotNumber: 1, monthlyRange: '220-360€', vip: true };
+  if (value >= 300) return { status: 'VIP', minFilamentPerMonth: 2, minTermYears: 1, maxTermYears: 2, freeTerm: false, slotNumber: 2, monthlyRange: '150-260€', vip: true };
+  return { status: 'Normal', minFilamentPerMonth: 1, minTermYears: 1, maxTermYears: 1, freeTerm: false, slotNumber: 3, monthlyRange: '100-180€', vip: false };
+}
+function scorePartnerTrust({ website, email, description, printerValue, filamentPerMonth, domainAgeYears }) {
+  let score = 52;
+  const host = (() => {
+    try { return new URL(String(website || '').startsWith('http') ? website : 'https://' + website).hostname.toLowerCase(); } catch { return ''; }
+  })();
+  const emailDomain = String(email || '').split('@')[1]?.toLowerCase() || '';
+  if (host) score += 8;
+  if (String(website || '').startsWith('https://')) score += 6;
+  if (host && emailDomain && (emailDomain === host || emailDomain.endsWith('.' + host) || host.endsWith('.' + emailDomain))) score += 10;
+  if ((description || '').length >= 80) score += 8;
+  if (Number(printerValue || 0) > 0) score += 5;
+  if (Number(filamentPerMonth || 0) > 0) score += 4;
+  if (typeof domainAgeYears === 'number') score += Math.min(12, Math.max(0, Math.round(domainAgeYears * 2)));
+  const redFlags = ['casino', 'crypto', 'urgent', 'telegram', 'whatsapp', 'seo', 'backlink'];
+  if (redFlags.some(flag => host.includes(flag) || String(description || '').toLowerCase().includes(flag))) score -= 28;
+  return Math.max(0, Math.min(100, score));
+}
+async function fetchDomainAgeYears(website) {
+  let hostname = '';
+  try {
+    hostname = new URL(String(website || '').startsWith('http') ? website : 'https://' + website).hostname;
+  } catch {
+    return null;
+  }
+  if (!hostname) return null;
+  try {
+    const response = await fetch(`https://rdap.org/domain/${hostname}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const events = Array.isArray(data.events) ? data.events : [];
+    const registration = events.find(event => String(event.eventAction || '').toLowerCase().includes('registration'));
+    if (!registration?.eventDate) return null;
+    const ageMs = Date.now() - new Date(registration.eventDate).getTime();
+    if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+    return Math.round((ageMs / (365.25 * 24 * 60 * 60 * 1000)) * 10) / 10;
+  } catch {
+    return null;
+  }
+}
+function buildPartnerCounterProposal(tier, filamentPerMonth, requestedYears, categoryOccupied) {
+  const proposals = [];
+  if (Number(filamentPerMonth || 0) < tier.minFilamentPerMonth) proposals.push(`mindestens ${tier.minFilamentPerMonth} Rollen Filament pro Monat`);
+  if (!tier.freeTerm && (requestedYears < tier.minTermYears || requestedYears > tier.maxTermYears)) {
+    proposals.push(`eine Laufzeit von ${tier.minTermYears}${tier.minTermYears !== tier.maxTermYears ? ` bis ${tier.maxTermYears}` : ''} Jahr${tier.maxTermYears > 1 ? 'en' : ''}`);
+  }
+  if (categoryOccupied) proposals.push('einen Platz auf der Warteliste oder einen Start nach Ablauf des aktiven Vertrags');
+  return proposals;
+}
+async function evaluatePartnerRequest(request) {
+  const requestedYears = Math.max(1, Math.min(3, Number(request.termYears || 1)));
+  const printerValue = Math.max(0, Number(request.printerValueEuro || 0));
+  const filamentPerMonth = Math.max(0, Number(request.filamentPerMonth || 0));
+  const category = normalizePartnerCategory(request.cooperationType || request.category || request.description);
+  const tier = partnerTier(printerValue);
+  const occupied = activePartnerByCategory(category);
+  const domainAgeYears = await fetchDomainAgeYears(request.website);
+  const trustScore = scorePartnerTrust({
+    website: request.website,
+    email: request.contactEmail,
+    description: request.description,
+    printerValue,
+    filamentPerMonth,
+    domainAgeYears
+  });
+  const counterProposal = buildPartnerCounterProposal(tier, filamentPerMonth, requestedYears, !!occupied);
+  const termYears = tier.freeTerm ? requestedYears : Math.min(tier.maxTermYears, Math.max(tier.minTermYears, requestedYears));
+  return {
+    category,
+    vipStatus: tier.status,
+    minFilamentPerMonth: tier.minFilamentPerMonth,
+    termYears,
+    requestedYears,
+    trustScore,
+    suspicious: trustScore < 60,
+    domainAgeYears,
+    waitlist: !!occupied,
+    occupiedBy: occupied ? occupied.companyName : null,
+    counterProposal,
+    suggestedMonthlyPrice: tier.monthlyRange,
+    suggestedSlotLabel: tier.slotNumber === 1 ? 'oberen Premium-Slot' : tier.slotNumber === 2 ? 'mittleren Banner-Slot' : 'unteren Banner-Slot',
+    suggestedSlotNumber: tier.slotNumber
+  };
+}
+function createPartnerAutoReply(request, evaluation) {
+  const baseGreeting = `Vielen Dank für Ihre Anfrage zur Kategorie ${evaluation.category}.`;
+  if (evaluation.trustScore < 60) {
+    return `${baseGreeting} Wir prüfen Ihr Unternehmen aktuell manuell, weil unser System noch offene Punkte bei Website/Unternehmensdaten erkannt hat. Bitte senden Sie uns gern weitere Nachweise oder Ihr Impressum, damit wir den Vorgang zügig abschließen können.`;
+  }
+  if (evaluation.waitlist) {
+    return `${baseGreeting} Die Kategorie ist aktuell exklusiv vergeben. Wir können Sie aber sehr gern auf die Warteliste setzen und würden mit ${evaluation.suggestedSlotLabel} starten, sobald der Platz frei wird.`;
+  }
+  if (evaluation.counterProposal.length) {
+    return `${baseGreeting} Ihr Angebot ist grundsätzlich interessant. Für diese Kategorie und Gerätekategorie würden wir als realistische Basis ${evaluation.counterProposal.join(' sowie ')} empfehlen. Wenn das für Sie passt, bereiten wir direkt den Vertragsentwurf vor.`;
+  }
+  if (evaluation.vipStatus === 'VIP PREMIUM') {
+    return `${baseGreeting} Ihr Angebot passt sehr gut zu unserem Premium-Partnerbereich. Wir haben bereits eine erste Prüfung vorgenommen und melden uns zusätzlich persönlich mit den finalen Konditionen.`;
+  }
+  if (evaluation.vipStatus === 'VIP') {
+    return `${baseGreeting} Ihr Angebot wirkt passend. Wir würden mit einem ${evaluation.termYears}-Jahres-Paket, Exklusivität in ${evaluation.category} und ${evaluation.minFilamentPerMonth} Rollen Filament pro Monat planen.`;
+  }
+  return `${baseGreeting} Ihr Angebot passt gut zu unserem aktuellen Rahmen. Wir würden mit einer Laufzeit von ${evaluation.termYears} Jahr und einem Banner im ${evaluation.suggestedSlotLabel} starten.`;
+}
+function buildPartnerContractPdf(request, evaluation) {
+  return createSimplePdfBase64([
+    'FabMargin 3D – Partner-Vertragsentwurf',
+    `Firma: ${request.companyName}`,
+    `Kategorie: ${evaluation.category}`,
+    `Drucker: ${request.printerModel} (${request.printerValueEuro}€)`,
+    `Filament pro Monat: ${request.filamentPerMonth} Rolle(n)`,
+    `Laufzeit: ${evaluation.termYears} Jahr(e)`,
+    `Exklusivität: 1 aktiver Partner pro Kategorie`,
+    `Banner-Slot: ${evaluation.suggestedSlotLabel}`,
+    'Kennzeichnung: Werbung / Anzeige',
+    'Kündigung: ordentlich zum Laufzeitende, sonst automatische manuelle Nachverhandlung',
+    `Kontakt: ${PARTNER_EMAIL}`
+  ]);
+}
+async function sendMail({ to, subject, text, priority = 'normal' }) {
+  const item = { id: crypto.randomUUID(), to, subject, text, priority, createdAt: new Date().toISOString(), delivered: false };
+  state.partnerNotifications.unshift(item);
+  state.partnerNotifications = state.partnerNotifications.slice(0, 100);
+  if (RESEND_API_KEY && RESEND_FROM) {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + RESEND_API_KEY
+        },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: Array.isArray(to) ? to : [to],
+          subject,
+          text
+        })
+      });
+      item.delivered = response.ok;
+    } catch {}
+  }
+  if (priority === 'push') incident('vip_push_notification', subject, 'info');
+  return item;
+}
 function sanitizeImage(input) {
   if (typeof input !== 'string') return null;
   const value = input.trim();
   if (!value) return null;
-  if (!/^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(value)) return null;
-  if (value.length > 350000) return null;
+  const match = value.match(/^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  const bytes = Buffer.byteLength(match[2], 'base64');
+  if (bytes > 5 * 1024 * 1024) return null;
   return value;
+}
+function countUserProfileImages(username) {
+  return (state.slicerProfiles || [])
+    .filter(profile => profile.owner === username)
+    .reduce((sum, profile) => sum + ((profile.images || []).length), 0);
+}
+function addPurchase(user, purchase) {
+  ensureUserDefaults(user);
+  user.purchases.unshift({
+    id: purchase.id || crypto.randomUUID(),
+    productId: purchase.productId,
+    title: purchase.title,
+    amount: purchase.amount,
+    currency: purchase.currency || 'EUR',
+    type: purchase.type || 'one_time',
+    status: purchase.status || 'completed',
+    provider: purchase.provider || 'stripe',
+    createdAt: purchase.createdAt || new Date().toISOString()
+  });
+  user.purchases = user.purchases.slice(0, 100);
+}
+function userHasAdFree(user) {
+  ensureUserDefaults(user);
+  return user.purchases.some(item => item.productId === 'ad_free_lifetime' && item.status === 'completed')
+    || user.purchases.some(item => item.productId === 'premium_subscription' && item.status === 'completed');
+}
+function userHasPremium(user) {
+  ensureUserDefaults(user);
+  return user.purchases.some(item => item.productId === 'premium_subscription' && item.status === 'completed');
+}
+function buildActiveBannerState() {
+  const approved = (state.partnerRequests || []).filter(item => item.status === 'approved' && item.bannerSlotNumber);
+  return (state.bannerSlots || []).map(slot => {
+    const items = approved.filter(item => item.bannerSlotNumber === slot.slotNumber);
+    if (!items.length) return { ...slot, active: null, queueLength: 0 };
+    const cycleSeconds = items.reduce((sum, item) => sum + Math.max(5, Number(item.rotationSeconds || 30)), 0);
+    let cursor = Math.floor(Date.now() / 1000) % cycleSeconds;
+    let active = items[0];
+    for (const item of items) {
+      const duration = Math.max(5, Number(item.rotationSeconds || 30));
+      if (cursor < duration) { active = item; break; }
+      cursor -= duration;
+    }
+    return {
+      ...slot,
+      queueLength: items.length,
+      active: {
+        requestId: active.id,
+        companyName: active.companyName,
+        category: active.category,
+        label: 'Anzeige',
+        website: active.website,
+        text: active.bannerText || `${active.companyName} · ${active.category} Partner`,
+        rotationSeconds: Math.max(5, Number(active.rotationSeconds || 30))
+      }
+    };
+  });
 }
 function sanitizeDiagnosticFlags(input) {
   const allowed = new Set(['devtools', 'many_errors', 'window.error', 'unhandledrejection', 'interval']);
@@ -262,6 +648,7 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Origin': origin || '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Security-Secret',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
     });
     return res.end();
   }
@@ -270,7 +657,11 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // Health
-    if (u.pathname === '/health') return json(res, 200, { ok: true, purchasesPaused: state.security.purchasesPaused }, origin);
+    if (u.pathname === '/health') return json(res, 200, { ok: true, purchasesPaused: state.security.purchasesPaused, banners: buildActiveBannerState() }, origin);
+
+    if (u.pathname === '/banners/active' && req.method === 'GET') {
+      return json(res, 200, { ok: true, slots: buildActiveBannerState() }, origin);
+    }
 
     // Kauf-Verifikation (von der App gerufen)
     if (u.pathname === '/purchase/verify' && req.method === 'POST') {
@@ -334,9 +725,15 @@ const server = http.createServer(async (req, res) => {
         notifications: [],
         purchasedSlicerProfiles: [],
         aiSettings: { ...DEFAULT_AI_SETTINGS }
+        redeemedRewards: [],
+        purchases: [],
+        devices: [],
+        settings: { bannerEnabled: true },
+        twoFactor: { enabled: false, secret: '', pendingSecret: '', backupCodeHashes: [], recoveryCodesPreview: [], verifiedAt: null }
       };
       state.activationCodes[code].usedBy = username;
       state.activationCodes[code].usedAt = new Date().toISOString();
+      rememberDevice(username, req);
       if (state.users[username].role === 'operator') notifyUser(username, 'Du wurdest als Operator freigeschaltet.', 'operator');
       saveState();
       const token = b64(crypto.randomBytes(32));
@@ -349,7 +746,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === '/auth/login' && req.method === 'POST') {
       if (!rateOk('auth_login:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Versuche' }, origin);
       const b = await body(req);
-      const { username, password } = b;
+      const { username, password, totpCode } = b;
       if (!username || !password) return json(res, 400, { ok: false, error: 'Benutzername und Passwort erforderlich' }, origin);
       const user = state.users[username];
       if (!user) return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
@@ -358,6 +755,21 @@ const server = http.createServer(async (req, res) => {
         incident('user_login_failed', 'user=' + username + ' ip=' + ip, 'warn');
         return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
       }
+      ensureUserDefaults(user);
+      if (user.twoFactor?.enabled) {
+        if (!totpCode) return json(res, 401, { ok: false, error: '2FA-Code erforderlich' }, origin);
+        let accepted = verifyTotp(user.twoFactor.secret, totpCode);
+        if (!accepted) {
+          const hash = hashRecoveryCode(totpCode);
+          const index = user.twoFactor.backupCodeHashes.findIndex(item => item === hash);
+          if (index !== -1) {
+            user.twoFactor.backupCodeHashes.splice(index, 1);
+            accepted = true;
+          }
+        }
+        if (!accepted) return json(res, 401, { ok: false, error: '2FA-Code ungültig' }, origin);
+      }
+      rememberDevice(username, req);
       const token = b64(crypto.randomBytes(32));
       sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
       incident('user_login', 'user=' + username, 'info');
@@ -389,6 +801,117 @@ const server = http.createServer(async (req, res) => {
         notifications: user.notifications || [],
         purchasedSlicerProfiles: user.purchasedSlicerProfiles || [],
         aiSettings: normalizeAiSettings(user.aiSettings)
+        purchases: user.purchases || [],
+        settings: user.settings || { bannerEnabled: true },
+        devices: user.devices || [],
+        twoFactorEnabled: !!user.twoFactor?.enabled,
+        adFree: userHasAdFree(user),
+        premiumActive: userHasPremium(user)
+      }, origin);
+    }
+
+    if (u.pathname === '/user/settings' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      return json(res, 200, {
+        ok: true,
+        settings: viewer.user.settings,
+        adFree: userHasAdFree(viewer.user),
+        premiumActive: userHasPremium(viewer.user),
+        twoFactorEnabled: !!viewer.user.twoFactor?.enabled
+      }, origin);
+    }
+
+    if (u.pathname === '/user/settings' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      const payload = await body(req);
+      if (typeof payload.bannerEnabled === 'boolean') viewer.user.settings.bannerEnabled = payload.bannerEnabled;
+      saveState();
+      return json(res, 200, { ok: true, settings: viewer.user.settings, adFree: userHasAdFree(viewer.user), premiumActive: userHasPremium(viewer.user) }, origin);
+    }
+
+    if (u.pathname === '/auth/2fa/enable' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      const payload = await body(req);
+      if (payload.disable) {
+        viewer.user.twoFactor = { enabled: false, secret: '', pendingSecret: '', backupCodeHashes: [], recoveryCodesPreview: [], verifiedAt: null };
+        saveState();
+        return json(res, 200, { ok: true, disabled: true }, origin);
+      }
+      if (viewer.user.twoFactor.enabled) return json(res, 400, { ok: false, error: '2FA ist bereits aktiv. Bitte erst deaktivieren, bevor du neue Backup-Codes erzeugst.' }, origin);
+      const secret = generateTotpSecret();
+      const recoveryCodes = generateRecoveryCodes();
+      viewer.user.twoFactor.pendingSecret = secret;
+      viewer.user.twoFactor.recoveryCodesPreview = recoveryCodes;
+      viewer.user.twoFactor.backupCodeHashes = recoveryCodes.map(hashRecoveryCode);
+      const otpauthUrl = `otpauth://totp/FabMargin:${encodeURIComponent(viewer.username)}?secret=${secret}&issuer=FabMargin&algorithm=SHA1&digits=6&period=30`;
+      saveState();
+      if (DEV_OTP_LOG) console.log('TOTP secret for', viewer.username, secret);
+      return json(res, 200, { ok: true, secret, otpauthUrl, backupCodes: recoveryCodes }, origin);
+    }
+
+    if (u.pathname === '/auth/2fa/verify' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      const payload = await body(req);
+      const code = String(payload.code || '').trim();
+      const secret = viewer.user.twoFactor.pendingSecret || viewer.user.twoFactor.secret;
+      if (!secret) return json(res, 400, { ok: false, error: '2FA wurde noch nicht vorbereitet' }, origin);
+      let accepted = verifyTotp(secret, code);
+      let usedBackupCode = false;
+      if (!accepted) {
+        const hash = hashRecoveryCode(code);
+        const index = viewer.user.twoFactor.backupCodeHashes.findIndex(item => item === hash);
+        if (index !== -1) {
+          viewer.user.twoFactor.backupCodeHashes.splice(index, 1);
+          accepted = true;
+          usedBackupCode = true;
+        }
+      }
+      if (!accepted) return json(res, 400, { ok: false, error: 'Code ungültig' }, origin);
+      viewer.user.twoFactor.enabled = true;
+      viewer.user.twoFactor.secret = secret;
+      viewer.user.twoFactor.pendingSecret = '';
+      viewer.user.twoFactor.recoveryCodesPreview = [];
+      viewer.user.twoFactor.verifiedAt = new Date().toISOString();
+      saveState();
+      return json(res, 200, { ok: true, enabled: true, usedBackupCode, remainingBackupCodes: viewer.user.twoFactor.backupCodeHashes.length }, origin);
+    }
+
+    if (u.pathname === '/user/devices' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      return json(res, 200, { ok: true, devices: viewer.user.devices || [] }, origin);
+    }
+
+    const userDeviceDeleteMatch = u.pathname.match(/^\/user\/devices\/([^/]+)$/);
+    if (userDeviceDeleteMatch && req.method === 'DELETE') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      const before = viewer.user.devices.length;
+      viewer.user.devices = viewer.user.devices.filter(device => device.id !== decodeURIComponent(userDeviceDeleteMatch[1]));
+      if (before === viewer.user.devices.length) return json(res, 404, { ok: false, error: 'Gerät nicht gefunden' }, origin);
+      saveState();
+      return json(res, 200, { ok: true, devices: viewer.user.devices }, origin);
+    }
+
+    if (u.pathname === '/user/purchases' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      ensureUserDefaults(viewer.user);
+      return json(res, 200, {
+        ok: true,
+        purchases: viewer.user.purchases || [],
+        premiumActive: userHasPremium(viewer.user),
+        adFree: userHasAdFree(viewer.user)
       }, origin);
     }
 
@@ -478,6 +1001,182 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, points: user.points, badges: user.badges || [], redeemedRewards: user.redeemedRewards || [] }, origin);
     }
 
+    if (u.pathname === '/payment/checkout' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      ensureUserDefaults(viewer.user);
+      const payload = await body(req);
+      const catalog = {
+        premium_subscription: { title: 'FabMargin Premium-Abo', amount: 999, type: 'subscription' },
+        ad_free_lifetime: { title: 'Werbefrei dauerhaft', amount: 499, type: 'one_time' },
+        slicer_profile_pack: { title: 'Slicer-Profil Paket', amount: 299, type: 'one_time' }
+      };
+      const productId = String(payload.productId || '');
+      const product = catalog[productId];
+      if (!product) return json(res, 400, { ok: false, error: 'Unbekanntes Produkt' }, origin);
+      const sessionId = 'sess_' + crypto.randomUUID().replace(/-/g, '');
+      const sessionData = {
+        id: sessionId,
+        username: viewer.username,
+        productId,
+        amount: product.amount,
+        currency: 'eur',
+        title: product.title,
+        type: product.type,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      state.paymentSessions[sessionId] = sessionData;
+      saveState();
+      if (!STRIPE_SECRET_KEY) {
+        return json(res, 200, {
+          ok: true,
+          sessionId,
+          mockMode: true,
+          checkoutUrl: `${APP_BASE_URL.replace(/\/$/, '')}/checkout/mock?session_id=${sessionId}`,
+          amount: product.amount,
+          currency: 'EUR'
+        }, origin);
+      }
+      const params = new URLSearchParams();
+      params.set('mode', product.type === 'subscription' ? 'subscription' : 'payment');
+      params.set('success_url', `${APP_BASE_URL.replace(/\/$/, '')}/payment-success?session_id=${sessionId}`);
+      params.set('cancel_url', `${APP_BASE_URL.replace(/\/$/, '')}/payment-cancelled?session_id=${sessionId}`);
+      params.set('line_items[0][price_data][currency]', 'eur');
+      params.set('line_items[0][price_data][unit_amount]', String(product.amount));
+      params.set('line_items[0][price_data][product_data][name]', product.title);
+      if (product.type === 'subscription') params.set('line_items[0][price_data][recurring][interval]', 'month');
+      params.set('line_items[0][quantity]', '1');
+      try {
+        const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + STRIPE_SECRET_KEY,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: params.toString()
+        });
+        const stripeData = await stripeResponse.json();
+        if (!stripeResponse.ok) return json(res, 502, { ok: false, error: stripeData.error?.message || 'Stripe-Checkout fehlgeschlagen' }, origin);
+        sessionData.stripeSessionId = stripeData.id;
+        saveState();
+        return json(res, 200, { ok: true, sessionId, checkoutUrl: stripeData.url, stripeSessionId: stripeData.id }, origin);
+      } catch (error) {
+        return json(res, 500, { ok: false, error: error.message }, origin);
+      }
+    }
+
+    if (u.pathname === '/payment/webhook' && req.method === 'POST') {
+      const raw = await rawBody(req, 1024 * 128);
+      const payload = raw ? JSON.parse(raw) : {};
+      const stripeSignature = String(req.headers['stripe-signature'] || '');
+      const altSecret = String(req.headers['x-security-secret'] || '');
+      if (STRIPE_WEBHOOK_SECRET) {
+        let verified = false;
+        if (stripeSignature) {
+          const parts = Object.fromEntries(stripeSignature.split(',').map(part => {
+            const idx = part.indexOf('=');
+            return idx === -1 ? null : [part.slice(0, idx).trim(), part.slice(idx + 1).trim()];
+          }).filter(Boolean));
+          const timestamp = parts.t;
+          const signature = parts.v1;
+          if (timestamp && signature) {
+            const expected = crypto.createHmac('sha256', STRIPE_WEBHOOK_SECRET).update(`${timestamp}.${raw}`).digest('hex');
+            verified = safeEqual(signature, expected);
+          }
+        } else if (altSecret) {
+          verified = safeEqual(altSecret, STRIPE_WEBHOOK_SECRET);
+        }
+        if (!verified) return json(res, 401, { ok: false, error: 'Webhook nicht autorisiert' }, origin);
+      }
+      const eventType = String(payload.type || '');
+      const sessionId = String(payload.sessionId || payload.data?.object?.client_reference_id || payload.data?.object?.metadata?.sessionId || '');
+      const session = state.paymentSessions[sessionId] || Object.values(state.paymentSessions).find(item => item.stripeSessionId === payload.data?.object?.id);
+      if (!session) return json(res, 404, { ok: false, error: 'Session nicht gefunden' }, origin);
+      if (eventType !== 'checkout.session.completed') return json(res, 200, { ok: true, ignored: true }, origin);
+      if (session.status === 'completed') return json(res, 200, { ok: true, alreadyCompleted: true }, origin);
+      const user = state.users[session.username];
+      if (!user) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      addPurchase(user, {
+        productId: session.productId,
+        title: session.title,
+        amount: session.amount,
+        type: session.type,
+        provider: 'stripe',
+        status: 'completed'
+      });
+      session.status = 'completed';
+      session.completedAt = new Date().toISOString();
+      notifyUser(session.username, `Zahlung erfolgreich: ${session.title}`, 'success');
+      saveState();
+      return json(res, 200, { ok: true, sessionId: session.id }, origin);
+    }
+
+    if (u.pathname === '/partner/request' && req.method === 'POST') {
+      if (!rateOk('partner:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const payload = await body(req);
+      const partner = {
+        id: crypto.randomUUID(),
+        companyName: String(payload.companyName || '').trim().slice(0, 120),
+        website: normalizeHttpsUrl(String(payload.website || '').trim().slice(0, 200)),
+        contactEmail: String(payload.contactEmail || '').trim().slice(0, 200),
+        cooperationType: String(payload.cooperationType || '').trim().slice(0, 80),
+        printerModel: String(payload.printerModel || '').trim().slice(0, 120),
+        printerValueEuro: Math.max(0, Number(payload.printerValueEuro || 0)),
+        filamentPerMonth: Math.max(0, Number(payload.filamentPerMonth || 0)),
+        termYears: Math.max(1, Math.min(3, Number(payload.termYears || 1))),
+        description: String(payload.description || '').trim().slice(0, 2000),
+        rotationSeconds: Math.max(5, Math.min(600, Number(payload.rotationSeconds || 30))),
+        bannerText: String(payload.bannerText || '').trim().slice(0, 140),
+        createdAt: new Date().toISOString(),
+        status: 'pending'
+      };
+      if (String(payload.website || '').trim() && !partner.website) return json(res, 400, { ok: false, error: 'Bitte eine gültige HTTPS-Website angeben' }, origin);
+      if (!partner.companyName || !partner.website || !partner.contactEmail || !partner.cooperationType || !partner.printerModel || !partner.description) {
+        return json(res, 400, { ok: false, error: 'Bitte alle Pflichtfelder ausfüllen' }, origin);
+      }
+      const evaluation = await evaluatePartnerRequest(partner);
+      partner.category = evaluation.category;
+      partner.vipStatus = evaluation.vipStatus;
+      partner.trustScore = evaluation.trustScore;
+      partner.suspicious = evaluation.suspicious;
+      partner.domainAgeYears = evaluation.domainAgeYears;
+      partner.counterProposal = evaluation.counterProposal;
+      partner.waitlist = evaluation.waitlist;
+      partner.autoReply = createPartnerAutoReply(partner, evaluation);
+      partner.bannerSlotNumber = evaluation.suggestedSlotNumber;
+      partner.contractPdfBase64 = buildPartnerContractPdf(partner, evaluation);
+      state.partnerRequests.unshift(partner);
+      state.partnerRequests = state.partnerRequests.slice(0, 200);
+      await sendMail({
+        to: PARTNER_EMAIL,
+        subject: `${evaluation.vipStatus !== 'Normal' ? '⭐ ' : ''}Neue Partner-Anfrage: ${partner.companyName}`,
+        text: [
+          `Firma: ${partner.companyName}`,
+          `Website: ${partner.website}`,
+          `Kontakt: ${partner.contactEmail}`,
+          `Kategorie: ${partner.category}`,
+          `VIP: ${partner.vipStatus}`,
+          `Trust-Score: ${partner.trustScore}%`,
+          `KI-Antwort: ${partner.autoReply}`
+        ].join('\n'),
+        priority: evaluation.vipStatus === 'VIP PREMIUM' ? 'push' : evaluation.vipStatus === 'VIP' ? 'high' : 'normal'
+      });
+      saveState();
+      return json(res, 200, {
+        ok: true,
+        requestId: partner.id,
+        category: partner.category,
+        vipStatus: partner.vipStatus,
+        trustScore: partner.trustScore,
+        suspicious: partner.suspicious,
+        autoReply: partner.autoReply,
+        counterProposal: partner.counterProposal,
+        waitlist: partner.waitlist,
+        contractPdfBase64: partner.contractPdfBase64
+      }, origin);
+    }
+
     // ---------- Geschützte Admin-Endpunkte ----------
 
     if (u.pathname.startsWith('/admin/') && u.pathname !== '/admin/login') {
@@ -498,11 +1197,14 @@ const server = http.createServer(async (req, res) => {
       const slicer = String(b.slicer || '').trim();
       const description = String(b.description || '').trim();
       const settings = b.settings || {};
-      const images = Array.isArray(b.images) ? b.images.map(sanitizeImage).filter(Boolean).slice(0, 3) : [];
+      const rawImages = Array.isArray(b.images) ? b.images : [];
+      const images = rawImages.map(sanitizeImage).filter(Boolean).slice(0, 5);
       const initialRating = Math.max(1, Math.min(5, Number(b.rating || 0) || 0));
       if (!name || !printerModel || !slicer || !description) return json(res, 400, { ok: false, error: 'Bitte alle Pflichtfelder ausfüllen' }, origin);
       if (!['Cura', 'PrusaSlicer', 'Bambu Studio'].includes(slicer)) return json(res, 400, { ok: false, error: 'Slicer nicht unterstützt' }, origin);
       if (!settings.layerHeight || !settings.speed || !settings.temp) return json(res, 400, { ok: false, error: 'Layer Height, Speed und Temp sind erforderlich' }, origin);
+      if (rawImages.length > 5) return json(res, 400, { ok: false, error: 'Maximal 5 Bilder pro Profil erlaubt' }, origin);
+      if ((countUserProfileImages(viewer.username) + images.length) > 20) return json(res, 400, { ok: false, error: 'Maximal 20 Bilder insgesamt pro Nutzer erlaubt. Bitte zuerst alte Bilder löschen.' }, origin);
       const item = {
         id: crypto.randomUUID(),
         owner: viewer.username,
@@ -528,6 +1230,22 @@ const server = http.createServer(async (req, res) => {
       saveState();
       incident('slicer_profile_created', 'user=' + viewer.username + ' id=' + item.id, 'info');
       return json(res, 200, { ok: true, profile: item }, origin);
+    }
+
+    if (u.pathname === '/user/slicer-profiles' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const profiles = (state.slicerProfiles || [])
+        .filter(profile => profile.owner === viewer.username)
+        .map(profile => ({
+          id: profile.id,
+          name: profile.name,
+          printerModel: profile.printerModel,
+          status: profile.status,
+          images: profile.images || [],
+          createdAt: profile.createdAt
+        }));
+      return json(res, 200, { ok: true, profiles, totalImages: countUserProfileImages(viewer.username) }, origin);
     }
 
     if (u.pathname === '/slicer/profiles' && req.method === 'GET') {
@@ -589,6 +1307,20 @@ const server = http.createServer(async (req, res) => {
       profile.rating = normalizeProfileRating(profile);
       saveState();
       return json(res, 200, { ok: true, rating: profile.rating }, origin);
+    }
+
+    const slicerImageDeleteMatch = u.pathname.match(/^\/slicer\/profile\/([^/]+)\/image\/(\d+)$/);
+    if (slicerImageDeleteMatch && req.method === 'DELETE') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const profile = (state.slicerProfiles || []).find(item => item.id === slicerImageDeleteMatch[1]);
+      if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
+      if (profile.owner !== viewer.username && viewer.user.role !== 'operator' && !sessionOk(req)) return json(res, 403, { ok: false, error: 'Nicht erlaubt' }, origin);
+      const imageIndex = Number(slicerImageDeleteMatch[2]);
+      if (!Array.isArray(profile.images) || imageIndex < 0 || imageIndex >= profile.images.length) return json(res, 404, { ok: false, error: 'Bild nicht gefunden' }, origin);
+      profile.images.splice(imageIndex, 1);
+      saveState();
+      return json(res, 200, { ok: true, images: profile.images || [], totalImages: countUserProfileImages(profile.owner) }, origin);
     }
 
     if (u.pathname === '/admin/slicer/pending' && req.method === 'GET') {
@@ -678,6 +1410,47 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, reports: state.diagnostics || [] }, origin);
     }
 
+    if (u.pathname === '/admin/partner/requests' && req.method === 'GET') {
+      return json(res, 200, { ok: true, requests: state.partnerRequests || [] }, origin);
+    }
+
+    const partnerDecisionMatch = u.pathname.match(/^\/admin\/partner\/requests\/([^/]+)\/(approve|reject)$/);
+    if (partnerDecisionMatch && req.method === 'POST') {
+      const request = (state.partnerRequests || []).find(item => item.id === partnerDecisionMatch[1]);
+      if (!request) return json(res, 404, { ok: false, error: 'Partner-Anfrage nicht gefunden' }, origin);
+      const action = partnerDecisionMatch[2];
+      if (action === 'approve') {
+        if (activePartnerByCategory(request.category) && activePartnerByCategory(request.category).id !== request.id) {
+          request.status = 'waitlist';
+          request.waitlist = true;
+        } else {
+          request.status = 'approved';
+          request.approvedAt = new Date().toISOString();
+        }
+      } else {
+        request.status = 'rejected';
+        request.rejectedAt = new Date().toISOString();
+      }
+      saveState();
+      return json(res, 200, { ok: true, status: request.status }, origin);
+    }
+
+    if (u.pathname === '/admin/partner/categories' && req.method === 'GET') {
+      const categories = ['Filament', 'Drucker', 'Software', 'Zubehör'].map(category => {
+        const activePartner = activePartnerByCategory(category);
+        return {
+          category,
+          activePartner: activePartner ? {
+            id: activePartner.id,
+            companyName: activePartner.companyName,
+            vipStatus: activePartner.vipStatus
+          } : null,
+          waiting: (state.partnerRequests || []).filter(item => item.category === category && item.status === 'waitlist').length
+        };
+      });
+      return json(res, 200, { ok: true, categories }, origin);
+    }
+
     if (u.pathname === '/admin/content' && req.method === 'GET') {
       return json(res, 200, { ok: true, content: state.cmsContent || {} }, origin);
     }
@@ -706,6 +1479,7 @@ const server = http.createServer(async (req, res) => {
         communityTotal: (state.community || []).length,
         communityPending: (state.community || []).filter(x => x.status === 'pending').length,
         slicerPending: (state.slicerProfiles || []).filter(x => x.status === 'pending').length,
+        partnerPending: (state.partnerRequests || []).filter(x => x.status === 'pending').length,
         diagnostics: (state.diagnostics || []).length,
         purchasesPaused: state.security.purchasesPaused,
         pauseReason: state.security.pauseReason,

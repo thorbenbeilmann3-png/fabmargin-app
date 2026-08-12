@@ -182,6 +182,9 @@
     document.querySelectorAll('[data-open-legal]').forEach(btn => {
       btn.addEventListener('click', () => openLegalScreen(btn.dataset.openLegal || 'overview'));
     });
+    $('legalOpenBtn').addEventListener('click', openLegalScreen);
+    $('adminLegalOpenBtn').addEventListener('click', openLegalScreen);
+    if ($('footerLegalBtn')) $('footerLegalBtn').addEventListener('click', openLegalScreen);
 
     // Admin-Login
     $('adminLoginBtn').addEventListener('click', adminLogin);
@@ -367,6 +370,7 @@
     $('statCodes').textContent = d.unusedCodes;
     $('statComm').textContent = d.communityPending;
     $('statIncidents').textContent = d.incidents;
+    if ($('statPartners')) $('statPartners').textContent = d.partnerPending || 0;
     const paused = d.purchasesPaused;
     $('adminPurchaseStatus').innerHTML = paused
       ? '<span style="color:var(--red)">⏸ Käufe pausiert' + (d.pauseReason ? ': ' + d.pauseReason : '') + '</span>'
@@ -878,7 +882,7 @@
     };
     if($('uLoginBtn')) $('uLoginBtn').onclick=async()=>{
       $('uLoginErr').textContent='';
-      try{await window.UserAuth.login($('uLoginUser').value.trim(),$('uLoginPw').value);
+      try{await window.UserAuth.login($('uLoginUser').value.trim(),$('uLoginPw').value,$('uLoginTotp').value.trim());
         document.getElementById('screenUserLogin').classList.add('hidden');
         document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
@@ -1118,6 +1122,14 @@
   function esc(s){
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+  function safeExternalUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      return url.protocol === 'https:' ? url.toString() : '';
+    } catch {
+      return '';
+    }
+  }
   function backend(){
     return (localStorage.getItem('fabmargin_backend_url') || '').replace(/\/$/,'');
   }
@@ -1351,9 +1363,37 @@
     const input = $('slicerImages');
     const preview = $('slicerImagePreview');
     if (!input || !preview) return;
-    const files = Array.from(input.files || []).slice(0, 3);
+    const files = Array.from(input.files || []);
+    if (files.length > 5) {
+      input.value = '';
+      selectedImages = [];
+      preview.innerHTML = '';
+      throw new Error('Maximal 5 Bilder pro Profil erlaubt');
+    }
+    for (const file of files) {
+      if (!['image/png', 'image/jpeg'].includes(file.type)) throw new Error('Nur JPG und PNG sind erlaubt');
+      if (file.size > 5 * 1024 * 1024) throw new Error(`"${file.name}" ist größer als 5MB`);
+    }
     selectedImages = await Promise.all(files.map(fileToDataUrl));
-    preview.innerHTML = selectedImages.filter(isSafeImageSrc).map(src => `<img src="${src}" alt="Vorschau">`).join('');
+    renderSelectedImages();
+  }
+  function renderSelectedImages() {
+    const preview = $('slicerImagePreview');
+    if (!preview) return;
+    preview.innerHTML = selectedImages.filter(isSafeImageSrc).map((src, index) => `
+      <div class="gallery-item">
+        <img src="${src}" alt="Vorschau">
+        <button type="button" class="danger tiny" data-remove-selected-image="${index}">✕</button>
+      </div>
+    `).join('');
+    preview.querySelectorAll('button[data-remove-selected-image]').forEach(btn => {
+      btn.onclick = () => {
+        selectedImages.splice(Number(btn.dataset.removeSelectedImage), 1);
+        const input = $('slicerImages');
+        if (input && !selectedImages.length) input.value = '';
+        renderSelectedImages();
+      };
+    });
   }
   async function loadCmsContent(){
     try {
@@ -1393,6 +1433,9 @@
     const profile = cachedProfile;
     const localUser = currentUser();
     if ($('userProfileCard')) $('userProfileCard').classList.toggle('hidden', !localUser);
+    if ($('userSecurityCard')) $('userSecurityCard').classList.toggle('hidden', !localUser);
+    if ($('userPaymentsCard')) $('userPaymentsCard').classList.toggle('hidden', !localUser);
+    if ($('mySlicerProfilesCard')) $('mySlicerProfilesCard').classList.toggle('hidden', !localUser);
     if ($('userProfileName')) $('userProfileName').textContent = profile?.username || localUser?.username || '';
     if ($('userProfileEmail')) $('userProfileEmail').textContent = profile?.email || localUser?.email || '';
     if ($('userRoleChip')) $('userRoleChip').textContent = 'Rolle: ' + (profile?.role || 'Gast');
@@ -1413,6 +1456,14 @@
         ? `Angemeldet als ${profile.username}. Profilkäufe kosten ${PROFILE_POINT_COST} Punkte.`
         : 'Bitte zuerst im Kundenbereich anmelden, um Profile zu kaufen oder zu teilen.';
     }
+    if ($('userSecurityStatus')) {
+      const chips = [];
+      chips.push(`<span class="chip">${profile?.twoFactorEnabled ? '✅ 2FA aktiv' : '🕓 2FA aus'}</span>`);
+      chips.push(`<span class="chip">${profile?.premiumActive ? '💎 Premium aktiv' : 'Standard'}</span>`);
+      chips.push(`<span class="chip">${profile?.adFree ? '🚫 Werbefrei' : '📢 Banner aktiv'}</span>`);
+      $('userSecurityStatus').innerHTML = chips.join('');
+    }
+    if ($('bannerEnabledToggle')) $('bannerEnabledToggle').checked = profile?.settings?.bannerEnabled !== false;
   }
   async function loadPoints(){
     if (!userToken()) {
@@ -1443,6 +1494,244 @@
       }
     } catch (e) {
       if ($('userRedeemList')) $('userRedeemList').innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function saveBannerSettings() {
+    const status = $('bannerSettingsStatus');
+    try {
+      await api('/user/settings', { method: 'POST', auth: 'user', body: { bannerEnabled: !!$('bannerEnabledToggle')?.checked } });
+      if (status) {
+        status.textContent = '✅ Einstellungen gespeichert.';
+        status.style.color = 'var(--green)';
+      }
+      await loadProfileData();
+      await loadBanners();
+    } catch (e) {
+      if (status) {
+        status.textContent = '❌ ' + e.message;
+        status.style.color = 'var(--red)';
+      }
+    }
+  }
+  async function startTwoFactorSetup() {
+    const status = $('twoFactorStatus');
+    const setupBox = $('twoFactorSetupBox');
+    try {
+      const data = await api('/auth/2fa/enable', { method: 'POST', auth: 'user', body: {} });
+      if (setupBox) {
+        setupBox.classList.remove('hidden');
+        setupBox.innerHTML = `
+          <strong>Authenticator einrichten</strong><br>
+          Secret: <code>${esc(data.secret)}</code><br>
+          Backup-Codes:<br>${(data.backupCodes || []).map(code => `<code>${esc(code)}</code>`).join('<br>')}
+        `;
+      }
+      if (status) {
+        status.textContent = 'Bitte Code aus Google Authenticator / Authy eingeben und dann bestätigen.';
+        status.style.color = 'var(--muted)';
+      }
+    } catch (e) {
+      if (status) {
+        status.textContent = '❌ ' + e.message;
+        status.style.color = 'var(--red)';
+      }
+    }
+  }
+  async function verifyTwoFactorSetup() {
+    const status = $('twoFactorStatus');
+    try {
+      const data = await api('/auth/2fa/verify', { method: 'POST', auth: 'user', body: { code: $('twoFactorCode').value.trim() } });
+      if (status) {
+        status.textContent = `✅ 2FA aktiviert. Verbleibende Backup-Codes: ${data.remainingBackupCodes}`;
+        status.style.color = 'var(--green)';
+      }
+      if ($('twoFactorSetupBox')) $('twoFactorSetupBox').classList.add('hidden');
+      $('twoFactorCode').value = '';
+      await loadProfileData();
+      await loadDevices();
+    } catch (e) {
+      if (status) {
+        status.textContent = '❌ ' + e.message;
+        status.style.color = 'var(--red)';
+      }
+    }
+  }
+  async function disableTwoFactorSetup() {
+    const status = $('twoFactorStatus');
+    try {
+      await api('/auth/2fa/enable', { method: 'POST', auth: 'user', body: { disable: true } });
+      if (status) {
+        status.textContent = '✅ 2FA deaktiviert.';
+        status.style.color = 'var(--green)';
+      }
+      if ($('twoFactorSetupBox')) $('twoFactorSetupBox').classList.add('hidden');
+      $('twoFactorCode').value = '';
+      await loadProfileData();
+    } catch (e) {
+      if (status) {
+        status.textContent = '❌ ' + e.message;
+        status.style.color = 'var(--red)';
+      }
+    }
+  }
+  async function loadDevices() {
+    const box = $('deviceList');
+    if (!box) return;
+    if (!userToken()) {
+      box.innerHTML = '<div class="muted small">Im Kundenbereich anmelden, um Geräte zu sehen.</div>';
+      return;
+    }
+    try {
+      const data = await api('/user/devices', { auth: 'user' });
+      box.innerHTML = !(data.devices || []).length ? '<div class="muted small">Noch keine Geräte erfasst.</div>' : data.devices.map(device => `
+        <div class="note-box small">
+          <strong>${esc(device.label)}</strong><br>
+          <span class="muted">${esc(device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('de-DE') : '')}</span><br>
+          <button class="danger tiny" data-remove-device="${esc(device.id)}" style="margin-top:8px">Gerät entfernen</button>
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-remove-device]').forEach(btn => btn.onclick = async () => {
+        try {
+          await api('/user/devices/' + encodeURIComponent(btn.dataset.removeDevice), { method: 'DELETE', auth: 'user' });
+          await loadDevices();
+        } catch (e) { alert('❌ ' + e.message); }
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function loadPurchases() {
+    const box = $('purchaseHistoryList');
+    if (!box) return;
+    if (!userToken()) {
+      box.innerHTML = '<div class="muted small">Im Kundenbereich anmelden, um Käufe zu sehen.</div>';
+      return;
+    }
+    try {
+      const data = await api('/user/purchases', { auth: 'user' });
+      box.innerHTML = !(data.purchases || []).length ? '<div class="muted small">Noch keine Stripe-Käufe vorhanden.</div>' : data.purchases.map(item => `
+        <div class="note-box small">
+          <strong>${esc(item.title || item.productId)}</strong><br>
+          <span class="muted">${esc(item.status)} · ${(Number(item.amount || 0) / 100).toFixed(2)} ${esc(item.currency || 'EUR')}</span><br>
+          <span class="muted">${esc(item.createdAt ? new Date(item.createdAt).toLocaleString('de-DE') : '')}</span>
+        </div>
+      `).join('');
+    } catch (e) {
+      box.innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function startCheckout(productId) {
+    const status = $('paymentStatus');
+    try {
+      const data = await api('/payment/checkout', { method: 'POST', auth: 'user', body: { productId } });
+      if (status) {
+        status.textContent = data.mockMode
+          ? `Mock-Checkout erstellt. Abschließen via Webhook-Test mit Session ${data.sessionId}.`
+          : 'Checkout erstellt. Weiterleitung zu Stripe…';
+        status.style.color = 'var(--muted)';
+      }
+      const checkoutUrl = safeExternalUrl(data.checkoutUrl);
+      if (checkoutUrl && !data.mockMode) window.open(checkoutUrl, '_blank', 'noopener');
+    } catch (e) {
+      if (status) {
+        status.textContent = '❌ ' + e.message;
+        status.style.color = 'var(--red)';
+      }
+    }
+  }
+  async function loadMySlicerProfiles() {
+    const box = $('mySlicerProfileList');
+    if (!box) return;
+    if (!userToken()) {
+      box.innerHTML = '<div class="muted small">Im Kundenbereich anmelden, um eigene Bilder zu verwalten.</div>';
+      if ($('mySlicerProfileMeta')) $('mySlicerProfileMeta').textContent = '';
+      return;
+    }
+    try {
+      const data = await api('/user/slicer-profiles', { auth: 'user' });
+      if ($('mySlicerProfileMeta')) $('mySlicerProfileMeta').textContent = `Gesamt gespeichert: ${data.totalImages || 0} / 20 Bilder`;
+      box.innerHTML = !(data.profiles || []).length ? '<div class="muted small">Noch keine eigenen Profile hochgeladen.</div>' : data.profiles.map(profile => `
+        <div class="note-box small">
+          <strong>${esc(profile.name)}</strong> · ${esc(profile.status)}<br>
+          <span class="muted">${esc(profile.printerModel)}</span>
+          <div class="gallery-strip">
+            ${(profile.images || []).filter(isSafeImageSrc).map((src, index) => `
+              <div class="gallery-item">
+                <img src="${src}" alt="Profilbild">
+                <button class="danger tiny" type="button" data-delete-image="${esc(profile.id)}:${index}">✕</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-delete-image]').forEach(btn => btn.onclick = async () => {
+        const [profileId, imageIndex] = String(btn.dataset.deleteImage || '').split(':');
+        try {
+          await api(`/slicer/profile/${profileId}/image/${imageIndex}`, { method: 'DELETE', auth: 'user' });
+          await loadMySlicerProfiles();
+        } catch (e) { alert('❌ ' + e.message); }
+      });
+    } catch (e) {
+      box.innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function loadBanners() {
+    const slots = {
+      bannerTopSlot: 'bannerTopCard',
+      bannerMiddleSlot: 'bannerMiddleCard',
+      bannerBottomSlot: 'bannerBottomCard'
+    };
+    Object.values(slots).forEach(cardId => { if ($(cardId)) $(cardId).classList.add('hidden'); });
+    try {
+      const data = await api('/banners/active');
+      const profile = cachedProfile;
+      const adsHidden = !!(profile?.premiumActive || profile?.adFree || profile?.settings?.bannerEnabled === false);
+      if (adsHidden) return;
+      (data.slots || []).forEach(slot => {
+        const targetId = slot.slotNumber === 1 ? 'bannerTopSlot' : slot.slotNumber === 2 ? 'bannerMiddleSlot' : 'bannerBottomSlot';
+        const cardId = slots[targetId];
+        if (!slot.active || !$(targetId) || !$(cardId)) return;
+        const website = safeExternalUrl(slot.active.website);
+        $(targetId).innerHTML = `
+          <div>
+            <span class="label">Anzeige</span>
+            <div class="title">${esc(slot.active.companyName)}</div>
+            <div class="small muted">${esc(slot.active.text)}</div>
+          </div>
+          <div style="margin-left:auto;text-align:right">
+            <div class="small muted">${esc(slot.position)} · ${esc(slot.priceRange)}</div>
+            ${website ? `<a href="${esc(website)}" target="_blank" rel="noopener" style="color:var(--accent-soft)">Mehr erfahren</a>` : '<span class="muted small">Kein sicherer Link</span>'}
+          </div>
+        `;
+        $(cardId).classList.remove('hidden');
+      });
+    } catch {}
+  }
+  async function submitPartnerRequest(event) {
+    event.preventDefault();
+    const status = $('partnerRequestStatus');
+    try {
+      const data = await api('/partner/request', {
+        method: 'POST',
+        body: {
+          companyName: $('partnerCompanyName').value.trim(),
+          website: $('partnerWebsite').value.trim(),
+          contactEmail: $('partnerContactEmail').value.trim(),
+          cooperationType: $('partnerCooperationType').value.trim(),
+          printerModel: $('partnerPrinterModel').value.trim(),
+          printerValueEuro: Number($('partnerPrinterValue').value || 0),
+          filamentPerMonth: Number($('partnerFilamentAmount').value || 0),
+          termYears: Number($('partnerTermYears').value || 1),
+          description: $('partnerDescription').value.trim(),
+          bannerText: $('partnerBannerText').value.trim()
+        }
+      });
+      event.target.reset();
+      status.innerHTML = `✅ Anfrage gesendet · Trust-Score: ${esc(data.trustScore)}% · ${esc(data.vipStatus)}<br>${esc(data.autoReply)}`;
+      status.style.color = data.suspicious ? 'var(--amber)' : 'var(--green)';
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
     }
   }
   async function loadMarketplace(){
@@ -1564,6 +1853,53 @@
       box.querySelectorAll('button[data-approve-slicer]').forEach(btn => btn.onclick = async () => {
         await api('/admin/slicer/approve/' + btn.dataset.approveSlicer, { method: 'POST', auth: 'admin', body: {} });
         await loadAdminSlicer();
+      });
+    } catch (e) {
+      box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+    }
+  }
+  async function loadPartnerCategoriesAdmin() {
+    const box = $('adminPartnerCategories');
+    if (!box) return;
+    try {
+      const data = await api('/admin/partner/categories', { auth: 'admin' });
+      box.innerHTML = (data.categories || []).map(item => `
+        <div class="note-box small">
+          <strong>${esc(item.category)}</strong><br>
+          ${item.activePartner ? `${esc(item.activePartner.companyName)} <span class="vip-star">${esc(item.activePartner.vipStatus)}</span>` : 'Aktuell frei'}<br>
+          <span class="muted">Warteliste: ${esc(item.waiting)}</span>
+        </div>
+      `).join('') || '<p class="muted small">Keine Kategorien gefunden.</p>';
+    } catch (e) {
+      box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+    }
+  }
+  async function loadPartnerRequestsAdmin() {
+    const box = $('adminPartnerRequestsList');
+    if (!box) return;
+    try {
+      const data = await api('/admin/partner/requests', { auth: 'admin' });
+      box.innerHTML = !(data.requests || []).length ? '<p class="muted small">Keine Partner-Anfragen.</p>' : data.requests.map(item => `
+        <div class="step">
+          <strong>${esc(item.companyName)}</strong> · ${esc(item.category)} · <span class="${item.vipStatus !== 'Normal' ? 'vip-star' : ''}">${esc(item.vipStatus)}</span><br>
+          <span class="small muted">Trust: ${esc(item.trustScore)}% · Laufzeit: ${esc(item.termYears)} Jahr(e) · Filament: ${esc(item.filamentPerMonth)} / Monat</span><br>
+          <span class="small">${esc(item.autoReply || '')}</span><br>
+          <span class="small muted">Status: ${esc(item.status)}</span>
+          ${item.status === 'pending' ? `<div class="row" style="margin-top:8px">
+            <button class="tiny" data-approve-partner="${item.id}">Genehmigen</button>
+            <button class="danger tiny" data-reject-partner="${item.id}">Ablehnen</button>
+          </div>` : ''}
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-approve-partner]').forEach(btn => btn.onclick = async () => {
+        await api('/admin/partner/requests/' + btn.dataset.approvePartner + '/approve', { method: 'POST', auth: 'admin', body: {} });
+        await loadPartnerCategoriesAdmin();
+        await loadPartnerRequestsAdmin();
+        await loadBanners();
+      });
+      box.querySelectorAll('button[data-reject-partner]').forEach(btn => btn.onclick = async () => {
+        await api('/admin/partner/requests/' + btn.dataset.rejectPartner + '/reject', { method: 'POST', auth: 'admin', body: {} });
+        await loadPartnerRequestsAdmin();
       });
     } catch (e) {
       box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
@@ -1754,6 +2090,10 @@
     await loadAiSettings();
     await loadPoints();
     await loadMarketplace();
+    await loadPurchases();
+    await loadDevices();
+    await loadMySlicerProfiles();
+    await loadBanners();
     await refreshOperatorConsole();
   }
   function refreshAdmin(data){
@@ -1766,15 +2106,31 @@
     bindPasswordGenerator();
     bindAiSettingsControls();
     if ($('slicerImages')) $('slicerImages').addEventListener('change', () => { handleImageSelection().catch(() => {}); });
+    if ($('slicerImages')) $('slicerImages').addEventListener('change', () => {
+      handleImageSelection().catch((error) => {
+        if ($('slicerCreateStatus')) {
+          $('slicerCreateStatus').textContent = '❌ ' + error.message;
+          $('slicerCreateStatus').style.color = 'var(--red)';
+        }
+      });
+    });
     if ($('slicerProfileForm')) $('slicerProfileForm').addEventListener('submit', submitSlicerProfile);
+    if ($('partnerRequestForm')) $('partnerRequestForm').addEventListener('submit', submitPartnerRequest);
     if ($('adminLoadSlicerBtn')) $('adminLoadSlicerBtn').addEventListener('click', () => { loadAdminSlicer().catch(() => {}); });
     if ($('adminLoadDiagnosticsBtn')) $('adminLoadDiagnosticsBtn').addEventListener('click', () => { loadDiagnostics().catch(() => {}); });
+    if ($('adminLoadPartnerRequestsBtn')) $('adminLoadPartnerRequestsBtn').addEventListener('click', () => { loadPartnerRequestsAdmin().catch(() => {}); });
+    if ($('adminLoadPartnerCategoriesBtn')) $('adminLoadPartnerCategoriesBtn').addEventListener('click', () => { loadPartnerCategoriesAdmin().catch(() => {}); });
     if ($('operatorInviteBtn')) $('operatorInviteBtn').addEventListener('click', () => { inviteOperator().catch(() => {}); });
     if ($('adminLoadOperatorRequestsBtn')) $('adminLoadOperatorRequestsBtn').addEventListener('click', () => { loadOperatorRequests().catch(() => {}); });
     if ($('adminLoadContentBtn')) $('adminLoadContentBtn').addEventListener('click', () => { loadCmsAdmin().catch(() => {}); });
     if ($('adminSaveContentBtn')) $('adminSaveContentBtn').addEventListener('click', () => { saveCmsAdmin().catch(() => {}); });
     if ($('operatorRefreshBtn')) $('operatorRefreshBtn').addEventListener('click', () => { refreshOperatorConsole().catch(() => {}); });
     if ($('operatorRequestBtn')) $('operatorRequestBtn').addEventListener('click', () => { sendOperatorRequest().catch(() => {}); });
+    if ($('saveBannerSettingsBtn')) $('saveBannerSettingsBtn').addEventListener('click', () => { saveBannerSettings().catch(() => {}); });
+    if ($('twoFactorEnableBtn')) $('twoFactorEnableBtn').addEventListener('click', () => { startTwoFactorSetup().catch(() => {}); });
+    if ($('twoFactorVerifyBtn')) $('twoFactorVerifyBtn').addEventListener('click', () => { verifyTwoFactorSetup().catch(() => {}); });
+    if ($('twoFactorDisableBtn')) $('twoFactorDisableBtn').addEventListener('click', () => { disableTwoFactorSetup().catch(() => {}); });
+    document.querySelectorAll('[data-checkout]').forEach(btn => btn.addEventListener('click', () => { startCheckout(btn.dataset.checkout).catch(() => {}); }));
     window.addEventListener('error', () => { jsErrorCount++; maybeSendDiagnostics('window.error'); });
     window.addEventListener('unhandledrejection', () => { jsErrorCount++; maybeSendDiagnostics('unhandledrejection'); });
     setInterval(() => { maybeSendDiagnostics('interval'); }, 15000);

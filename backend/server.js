@@ -964,6 +964,41 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, orderId: result.orderId }, origin);
     }
 
+    // GET /community/list – öffentlich
+    if (u.pathname === '/community/list' && req.method === 'GET') {
+      const approved = (state.community || []).filter(x => x.status === 'approved');
+      return json(res, 200, { ok: true, items: approved }, origin);
+    }
+
+    // POST /community/post – User erforderlich
+    if (u.pathname === '/community/post' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte anmelden' }, origin);
+      const b = await body(req);
+      if (!b.title || !b.text) return json(res, 400, { ok: false, error: 'Titel und Text erforderlich' }, origin);
+      const item = { id: crypto.randomUUID(), title: String(b.title).trim().slice(0, 80), text: String(b.text).trim().slice(0, 500), author: viewer.username, status: 'pending', votes: 0, createdAt: new Date().toISOString() };
+      if (!Array.isArray(state.community)) state.community = [];
+      state.community.unshift(item);
+      saveState();
+      return json(res, 200, { ok: true, item }, origin);
+    }
+
+    // POST /community/vote – User erforderlich
+    if (u.pathname === '/community/vote' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte anmelden' }, origin);
+      const b = await body(req);
+      if (b.dir !== 1 && b.dir !== -1) return json(res, 400, { ok: false, error: 'Ungültige Richtung' }, origin);
+      const item = (state.community || []).find(x => x.id === b.id);
+      if (!item) return json(res, 404, { ok: false, error: 'Nicht gefunden' }, origin);
+      if (!Array.isArray(item.votedBy)) item.votedBy = [];
+      if (item.votedBy.includes(viewer.username)) return json(res, 409, { ok: false, error: 'Bereits abgestimmt' }, origin);
+      item.votedBy.push(viewer.username);
+      item.votes = (item.votes || 0) + b.dir;
+      saveState();
+      return json(res, 200, { ok: true, votes: item.votes }, origin);
+    }
+
     // Admin-Login
     if (u.pathname === '/admin/login' && req.method === 'POST') {
       if (!rateOk('login:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Versuche' }, origin);

@@ -571,7 +571,7 @@
           <div class="price" style="color:var(--amber)">${f.credits} Credit${f.credits > 1 ? 's' : ''}</div>
           <button class="tiny" style="margin-top:6px" ${disabledByAi ? 'disabled' : ''}>${disabledByAi ? 'Deaktiviert' : (unlocked ? '✓ Aktiv' : (f.oneTime ? 'Freischalten' : 'Nutzen'))}</button>
         </div>`;
-      el.querySelector('button').onclick = () => useCreditFeature(f);
+      if (!disabledByAi) el.querySelector('button').onclick = () => useCreditFeature(f);
       list.appendChild(el);
     });
   }
@@ -1217,7 +1217,7 @@
     const box = $('userSettingsCard');
     const normalized = normalizeAiSettings(settings);
     if (box) box.classList.toggle('hidden', !localUser);
-    if ($('aiFeatureBanner')) $('aiFeatureBanner').classList.toggle('hidden', !normalized.recommendations && !normalized.analysis && !normalized.chatbot);
+    if ($('aiFeatureBanner')) $('aiFeatureBanner').classList.toggle('hidden', !(normalized.recommendations || normalized.analysis || normalized.chatbot));
     emitAiSettingsChanged(normalized);
     if (!localUser) return;
     if ($('aiRecommendationsToggle')) $('aiRecommendationsToggle').checked = normalized.recommendations;
@@ -1229,9 +1229,10 @@
         : 'Komplett manuell aktiv – alle KI-Funktionen sind derzeit deaktiviert.';
     }
   }
-  async function saveAiSettings(nextSettings){
+  async function saveAiSettings(nextSettings, options = {}){
     if (!window.UserAuth || typeof window.UserAuth.updateAiSettings !== 'function') throw new Error('KI-Einstellungen sind gerade nicht verfügbar');
-    const result = await window.UserAuth.updateAiSettings({ settings: nextSettings });
+    const payload = options.allDisabled ? { allDisabled: true } : { settings: nextSettings };
+    const result = await window.UserAuth.updateAiSettings(payload);
     const normalized = normalizeAiSettings(result.settings);
     cachedProfile = { ...(cachedProfile || {}), aiSettings: normalized };
     saveCurrentUserPatch({ aiSettings: normalized });
@@ -1293,7 +1294,7 @@
           status.style.color = 'var(--muted)';
           status.textContent = 'Deaktiviere alle KI-Funktionen…';
         }
-        await saveAiSettings({ recommendations: false, analysis: false, chatbot: false });
+        await saveAiSettings({ recommendations: false, analysis: false, chatbot: false }, { allDisabled: true });
         if (status) {
           status.style.color = 'var(--green)';
           status.textContent = '✅ Alle KI-Funktionen wurden deaktiviert.';
@@ -1761,6 +1762,7 @@
     }
   }
   document.addEventListener('DOMContentLoaded', () => {
+    emitAiSettingsChanged(DEFAULT_AI_SETTINGS);
     bindPasswordGenerator();
     bindAiSettingsControls();
     if ($('slicerImages')) $('slicerImages').addEventListener('change', () => { handleImageSelection().catch(() => {}); });
@@ -1777,6 +1779,5 @@
     window.addEventListener('unhandledrejection', () => { jsErrorCount++; maybeSendDiagnostics('unhandledrejection'); });
     setInterval(() => { maybeSendDiagnostics('interval'); }, 15000);
   });
-  emitAiSettingsChanged(DEFAULT_AI_SETTINGS);
   window.Part7 = { refreshHome, refreshAdmin };
 })();

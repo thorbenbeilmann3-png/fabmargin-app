@@ -22,6 +22,21 @@ const DEFAULT_AI_SETTINGS = Object.freeze({
   analysis: true,
   chatbot: true
 });
+function normalizeAiSettings(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    recommendations: source.recommendations !== false,
+    analysis: source.analysis !== false,
+    chatbot: source.chatbot !== false
+  };
+}
+function aiSettingsResponse(settings) {
+  const normalized = normalizeAiSettings(settings);
+  return {
+    settings: normalized,
+    allDisabled: !normalized.recommendations && !normalized.analysis && !normalized.chatbot
+  };
+}
 
 // Google Play Developer API Zugangsdaten (Service-Account JSON als ENV oder Datei)
 const GOOGLE_PLAY_PACKAGE = process.env.GOOGLE_PLAY_PACKAGE || 'com.printprofit3d.fabmargin';
@@ -173,21 +188,6 @@ function roleFromInvite(email) {
   if (!invite) return 'user';
   invite.acceptedAt = new Date().toISOString();
   return 'operator';
-}
-function normalizeAiSettings(input) {
-  const source = input && typeof input === 'object' ? input : {};
-  return {
-    recommendations: source.recommendations !== false,
-    analysis: source.analysis !== false,
-    chatbot: source.chatbot !== false
-  };
-}
-function aiSettingsResponse(settings) {
-  const normalized = normalizeAiSettings(settings);
-  return {
-    settings: normalized,
-    allDisabled: !normalized.recommendations && !normalized.analysis && !normalized.chatbot
-  };
 }
 function sanitizeImage(input) {
   if (typeof input !== 'string') return null;

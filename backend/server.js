@@ -26,6 +26,18 @@ const DEFAULT_AI_SETTINGS = Object.freeze({
   analysis: true,
   chatbot: true
 });
+const ADMIN_AI_MONITOR_INTERVAL_MS = 60 * 1000;
+const ADMIN_AI_ALERT_RETENTION = 200;
+const ADMIN_AI_AUDIT_RETENTION = 500;
+const ADMIN_AI_CHAT_RETENTION = 300;
+const ADMIN_AI_ACTIONS = Object.freeze({
+  fix_banner_slots: { risk: 'medium', title: 'Banner-Slots reparieren' },
+  freeze_user: { risk: 'high', title: 'Nutzerkonto sperren' },
+  migrate_ai_settings: { risk: 'low', title: 'AI-Einstellungen migrieren' },
+  clear_incidents: { risk: 'medium', title: 'Incidents bereinigen' },
+  recalculate_trust_scores: { risk: 'medium', title: 'Trust-Scores neu berechnen' },
+  export_dsgvo: { risk: 'high', title: 'DSGVO-Export erstellen' }
+});
 function normalizeAiSettings(input) {
   const source = input && typeof input === 'object' ? input : {};
   return {
@@ -115,6 +127,17 @@ if (!state.cmsContent) {
   };
   saveState();
 }
+if (!state.adminAi || typeof state.adminAi !== 'object') {
+  state.adminAi = {};
+}
+if (!Array.isArray(state.adminAi.chat)) state.adminAi.chat = [];
+if (!Array.isArray(state.adminAi.alerts)) state.adminAi.alerts = [];
+if (!Array.isArray(state.adminAi.auditLog)) state.adminAi.auditLog = [];
+if (!state.adminAi.pendingActions || typeof state.adminAi.pendingActions !== 'object') state.adminAi.pendingActions = {};
+if (!state.adminAi.monitor || typeof state.adminAi.monitor !== 'object') state.adminAi.monitor = {};
+if (typeof state.adminAi.monitor.knownUsers !== 'number') state.adminAi.monitor.knownUsers = Object.keys(state.users || {}).length;
+if (typeof state.adminAi.monitor.lastValue !== 'number') state.adminAi.monitor.lastValue = 0;
+if (!state.adminAi.lastMonitorAt) state.adminAi.lastMonitorAt = null;
 let usersUpdated = false;
 for (const user of Object.values(state.users)) {
   const before = JSON.stringify(user);
@@ -122,6 +145,285 @@ for (const user of Object.values(state.users)) {
   if (before !== JSON.stringify(user)) usersUpdated = true;
 }
 if (usersUpdated) saveState();
+
+function adminAiAudit(actor, action, result, status = 'ok', detail = '') {
+  const entry = {
+    id: crypto.randomUUID(),
+    actor: actor || state.admin.username || 'admin',
+    action,
+    result,
+    status,
+    detail: String(detail || '').slice(0, 300),
+    time: new Date().toISOString()
+  };
+  state.adminAi.auditLog.unshift(entry);
+  state.adminAi.auditLog = state.adminAi.auditLog.slice(0, ADMIN_AI_AUDIT_RETENTION);
+  return entry;
+}
+function adminAiPushChat(role, text, extra = {}) {
+  state.adminAi.chat.push({
+    id: crypto.randomUUID(),
+    role: role === 'assistant' ? 'assistant' : 'admin',
+    text: String(text || '').slice(0, 2000),
+    time: new Date().toISOString(),
+    intents: Array.isArray(extra.intents) ? extra.intents.slice(0, 10) : [],
+    actions: Array.isArray(extra.actions) ? extra.actions.slice(0, 6) : []
+  });
+  if (state.adminAi.chat.length > ADMIN_AI_CHAT_RETENTION) {
+    state.adminAi.chat = state.adminAi.chat.slice(-ADMIN_AI_CHAT_RETENTION);
+  }
+}
+function adminAiSeverityIcon(severity) {
+  if (severity === 'critical') return '🔴';
+  if (severity === 'important') return '🟡';
+  return '🟢';
+}
+function adminAiPushAlert(type, severity, message, meta = {}) {
+  const normalizedType = String(type || '').slice(0, 80);
+  const normalizedMessage = String(message || '').slice(0, 260);
+  const now = Date.now();
+  const existing = (state.adminAi.alerts || []).find(a =>
+    a.type === normalizedType &&
+    a.message === normalizedMessage &&
+    (now - new Date(a.time).getTime()) < (30 * 60 * 1000)
+  );
+  if (existing) {
+    existing.count = (existing.count || 1) + 1;
+    existing.time = new Date().toISOString();
+    return existing;
+  }
+  const alert = {
+    id: crypto.randomUUID(),
+    type: normalizedType,
+    severity: severity === 'critical' ? 'critical' : severity === 'important' ? 'important' : 'info',
+    icon: adminAiSeverityIcon(severity),
+    message: normalizedMessage,
+    meta,
+    count: 1,
+    time: new Date().toISOString()
+  };
+  state.adminAi.alerts.unshift(alert);
+  state.adminAi.alerts = state.adminAi.alerts.slice(0, ADMIN_AI_ALERT_RETENTION);
+  return alert;
+}
+function detectAdminAiIntents(input) {
+  const text = String(input || '').toLowerCase();
+  const intents = [];
+  const push = name => { if (!intents.includes(name)) intents.push(name); };
+  if (/\bbanner|slot\b/.test(text)) push('banner');
+  if (/\bpartner\b/.test(text)) push('partner');
+  if (/\bnutzer|user|konto\b/.test(text)) push('nutzer');
+  if (/\bsicherheit|angriff|hack|zugriff\b/.test(text)) push('sicherheit');
+  if (/\bwert|bewertung|valuation\b/.test(text)) push('wert');
+  if (/\bstripe|zahlung|kauf\b/.test(text)) push('stripe');
+  if (/\bproblem|fehler|bug\b/.test(text)) push('problem');
+  if (/\bincident|vorfall|alarm\b/.test(text)) push('incident');
+  if (/\bdsgvo|datenschutz|export\b/.test(text)) push('dsgvo');
+  if (/\bstatus|lage|übersicht\b/.test(text)) push('status');
+  if (!intents.length) push('status');
+  return intents;
+}
+function detectUsernameFromText(input) {
+  const text = String(input || '');
+  const patterns = [
+    /nutzer(?:name)?\s*[:=]?\s*([A-Za-z0-9_.-]{3,40})/i,
+    /user\s*[:=]?\s*([A-Za-z0-9_.-]{3,40})/i,
+    /konto\s+([A-Za-z0-9_.-]{3,40})/i
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match && state.users[match[1]]) return match[1];
+  }
+  return '';
+}
+function buildAdminAiReply(message, intents, valuation) {
+  const parts = [];
+  if (intents.includes('status')) {
+    parts.push(`Aktueller Systemstatus: ${valuation.users} Nutzer, ${valuation.partners} aktive Partner, ${valuation.premiumPurchases} Premium-Käufe.`);
+  }
+  if (intents.includes('sicherheit') || intents.includes('incident')) {
+    parts.push(`Sicherheitslage: ${state.security.failedLogins || 0} fehlgeschlagene Admin-Logins, ${(state.security.incidents || []).length} Incident-Einträge.`);
+  }
+  if (intents.includes('banner')) {
+    const approvedPartners = (state.partnerRequests || []).filter(item => item.status === 'approved').length;
+    parts.push(`Banner-Status: ${(state.bannerSlots || []).length} definierte Slots, ${approvedPartners} genehmigte Partner.`);
+  }
+  if (intents.includes('dsgvo')) {
+    parts.push('Für DSGVO-Anfragen kann ich einen anonymisierten Export vorbereiten.');
+  }
+  if (intents.includes('wert')) {
+    parts.push(`Live App-Wert: ${valuation.value.toLocaleString('de-DE')} Punkte (Wachstum ${valuation.growthPercent}%).`);
+  }
+  if (!parts.length) {
+    parts.push('Ich habe deine Anfrage analysiert und kann dir passende Admin-Aktionen vorschlagen.');
+  }
+  return `🤖 Analyse abgeschlossen.\n\n${parts.join('\n')}`;
+}
+function buildAdminAiActionSuggestions(message, intents) {
+  const suggestions = [];
+  const text = String(message || '').toLowerCase();
+  if (intents.includes('banner') || text.includes('slot')) {
+    suggestions.push(buildAdminAiAction('fix_banner_slots', 'Leere oder inkonsistente Banner-Slots prüfen und reparieren.'));
+  }
+  if (intents.includes('sicherheit') || intents.includes('nutzer')) {
+    const username = detectUsernameFromText(message) || '';
+    suggestions.push(buildAdminAiAction('freeze_user', username ? `Nutzer "${username}" sperren.` : 'Ein Nutzerkonto bei Bedarf sperren.', username ? { username } : {}));
+    suggestions.push(buildAdminAiAction('migrate_ai_settings', 'Fehlende oder veraltete aiSettings bei allen Nutzern angleichen.'));
+  }
+  if (intents.includes('incident') || intents.includes('problem')) {
+    suggestions.push(buildAdminAiAction('clear_incidents', 'Alte Incident-Einträge nach Sichtung bereinigen.'));
+  }
+  if (intents.includes('partner') || intents.includes('status')) {
+    suggestions.push(buildAdminAiAction('recalculate_trust_scores', 'Trust-Scores für Partner-Anfragen neu berechnen.'));
+  }
+  if (intents.includes('dsgvo')) {
+    suggestions.push(buildAdminAiAction('export_dsgvo', 'Anonymisierten DSGVO-Export erzeugen.'));
+  }
+  return suggestions.filter(Boolean).slice(0, 4);
+}
+function calculateAdminAiValuation() {
+  const users = Object.values(state.users || {});
+  const now = Date.now();
+  const last30DaysUsers = users.filter(user => user.activatedAt && (now - new Date(user.activatedAt).getTime()) <= 30 * 24 * 60 * 60 * 1000).length;
+  const partnerCount = (state.partnerRequests || []).filter(item => item.status === 'approved').length;
+  const premiumPurchases = Object.keys(state.purchases || {}).length + (state.slicerProfiles || []).reduce((sum, profile) => sum + Number(profile.purchaseCount || 0), 0);
+  const growthFactor = Math.max(0, Math.round((last30DaysUsers / Math.max(1, users.length)) * 100));
+  const value = Math.round((users.length * 120) + (partnerCount * 850) + (premiumPurchases * 28) + (growthFactor * 60));
+  return {
+    users: users.length,
+    partners: partnerCount,
+    premiumPurchases,
+    growthPercent: growthFactor,
+    value
+  };
+}
+function buildAdminAiAction(action, detail, extras = {}) {
+  const template = ADMIN_AI_ACTIONS[action];
+  if (!template) return null;
+  const id = crypto.randomUUID();
+  const proposal = {
+    id,
+    action,
+    title: template.title,
+    risk: template.risk,
+    detail: String(detail || '').slice(0, 260),
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+    ...extras
+  };
+  state.adminAi.pendingActions[id] = proposal;
+  const keys = Object.keys(state.adminAi.pendingActions);
+  if (keys.length > 300) {
+    keys.sort((a, b) => new Date(state.adminAi.pendingActions[b]?.createdAt || 0).getTime() - new Date(state.adminAi.pendingActions[a]?.createdAt || 0).getTime());
+    keys.slice(250).forEach(key => { delete state.adminAi.pendingActions[key]; });
+  }
+  return proposal;
+}
+function executeAdminAiAction(proposal, payload = {}) {
+  const action = proposal.action;
+  if (action === 'fix_banner_slots') {
+    const defaults = [
+      { id: 'slot_top', position: 'oben', label: 'Premium', priceRange: '300-500€/Monat', slotNumber: 1 },
+      { id: 'slot_middle', position: 'mitte', label: 'Standard', priceRange: '150-300€/Monat', slotNumber: 2 },
+      { id: 'slot_bottom', position: 'unten', label: 'Footer', priceRange: '100-200€/Monat', slotNumber: 3 }
+    ];
+    state.bannerSlots = defaults.map((slot, idx) => ({ ...slot, ...(state.bannerSlots[idx] || {}) }));
+    return { message: 'Banner-Slots wurden geprüft und repariert.', changed: state.bannerSlots.length };
+  }
+  if (action === 'freeze_user') {
+    const username = String(payload.username || proposal.username || '').trim();
+    if (!username) throw new Error('Für "Nutzerkonto sperren" wird ein Benutzername benötigt.');
+    if (!state.users[username]) throw new Error('Nutzer nicht gefunden: ' + username);
+    state.users[username].blocked = true;
+    state.users[username].blockedAt = new Date().toISOString();
+    return { message: `Nutzer ${username} wurde gesperrt.`, username };
+  }
+  if (action === 'migrate_ai_settings') {
+    let changed = 0;
+    for (const user of Object.values(state.users || {})) {
+      const before = JSON.stringify(user.aiSettings || {});
+      user.aiSettings = normalizeAiSettings(user.aiSettings);
+      if (before !== JSON.stringify(user.aiSettings)) changed++;
+    }
+    return { message: `AI-Einstellungen wurden migriert (${changed} Nutzer aktualisiert).`, changed };
+  }
+  if (action === 'clear_incidents') {
+    const removed = (state.security.incidents || []).length;
+    state.security.incidents = [];
+    return { message: `Incidents wurden bereinigt (${removed} Einträge).`, removed };
+  }
+  if (action === 'recalculate_trust_scores') {
+    const requests = state.partnerRequests || [];
+    requests.forEach(item => {
+      let score = 50;
+      if (item.vipStatus === 'VIP PREMIUM') score += 35;
+      else if (item.vipStatus === 'VIP') score += 20;
+      if (item.waitlist) score -= 10;
+      if (item.suspicious) score -= 25;
+      item.trustScore = Math.max(0, Math.min(100, score));
+    });
+    return { message: `Trust-Scores wurden neu berechnet (${requests.length} Partner-Anfragen).`, changed: requests.length };
+  }
+  if (action === 'export_dsgvo') {
+    const anonymizedUsers = Object.entries(state.users || {}).map(([username, user]) => ({
+      usernameHash: b64(crypto.createHash('sha256').update(username).digest()).slice(0, 18),
+      activatedAt: user.activatedAt || null,
+      role: user.role || 'user',
+      aiSettings: normalizeAiSettings(user.aiSettings)
+    }));
+    return {
+      message: 'DSGVO-Export erstellt.',
+      export: {
+        generatedAt: new Date().toISOString(),
+        users: anonymizedUsers,
+        incidents: (state.security.incidents || []).map(item => ({ type: item.type, severity: item.severity, time: item.time }))
+      }
+    };
+  }
+  throw new Error('Unbekannte Aktion: ' + action);
+}
+function runAdminAiMonitor() {
+  const valuation = calculateAdminAiValuation();
+  const nowIso = new Date().toISOString();
+  if ((state.security.failedLogins || 0) >= 5) {
+    adminAiPushAlert('failed_logins', 'critical', 'Mehrere fehlgeschlagene Admin-Logins erkannt.', { failedLogins: state.security.failedLogins });
+  }
+  const approvedPartners = (state.partnerRequests || []).filter(item => item.status === 'approved');
+  const occupied = new Set(approvedPartners.map(item => Number(item.bannerSlotNumber || 0)).filter(Boolean));
+  const emptySlots = (state.bannerSlots || []).filter(slot => !occupied.has(Number(slot.slotNumber || 0)));
+  if (emptySlots.length) {
+    adminAiPushAlert('empty_banner_slots', 'important', `${emptySlots.length} Banner-Slot(s) sind aktuell unbelegt.`, { emptySlots: emptySlots.map(slot => slot.id) });
+  }
+  const missingAiUsers = Object.entries(state.users || {}).filter(([, user]) => !user.aiSettings || typeof user.aiSettings !== 'object').length;
+  if (missingAiUsers > 0) {
+    adminAiPushAlert('missing_ai_settings', 'important', `${missingAiUsers} Nutzer ohne aiSettings erkannt.`, { missingAiUsers });
+  }
+  try {
+    const fileSize = fs.existsSync(DATA_FILE) ? fs.statSync(DATA_FILE).size : 0;
+    if (fileSize > 8 * 1024 * 1024) {
+      adminAiPushAlert('storage_high', 'critical', 'Speicher fast voll (State-Datei > 8MB).', { bytes: fileSize });
+    } else if (fileSize > 5 * 1024 * 1024) {
+      adminAiPushAlert('storage_warn', 'important', 'Speicher wächst stark (State-Datei > 5MB).', { bytes: fileSize });
+    }
+  } catch {}
+  const knownUsers = Number(state.adminAi.monitor.knownUsers || 0);
+  if (valuation.users > knownUsers) {
+    adminAiPushAlert('new_users', 'info', `${valuation.users - knownUsers} neue Nutzer seit letzter Prüfung.`, { totalUsers: valuation.users });
+  }
+  const previousValue = Number(state.adminAi.monitor.lastValue || 0);
+  if (previousValue && Math.abs(valuation.value - previousValue) >= 500) {
+    const trend = valuation.value > previousValue ? 'gestiegen' : 'gesunken';
+    adminAiPushAlert('value_change', 'info', `App-Wert hat sich deutlich ${trend} (${previousValue} → ${valuation.value}).`, { previousValue, currentValue: valuation.value });
+  }
+  state.adminAi.monitor.knownUsers = valuation.users;
+  state.adminAi.monitor.lastValue = valuation.value;
+  state.adminAi.lastMonitorAt = nowIso;
+  saveState();
+}
+setInterval(() => {
+  try { runAdminAiMonitor(); } catch (err) { console.error('Admin-AI-Monitor Fehler:', err.message); }
+}, ADMIN_AI_MONITOR_INTERVAL_MS);
+try { runAdminAiMonitor(); } catch {}
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -1447,6 +1749,110 @@ const server = http.createServer(async (req, res) => {
       };
       saveState();
       return json(res, 200, { ok: true, content: state.cmsContent }, origin);
+    }
+
+    // ---------- Admin KI-Assistent ----------
+    if (u.pathname === '/admin/ai/chat' && req.method === 'GET') {
+      return json(res, 200, {
+        ok: true,
+        messages: state.adminAi.chat || [],
+        pendingActions: Object.values(state.adminAi.pendingActions || {}).filter(item => item.status === 'pending').slice(0, 20),
+        lastMonitorAt: state.adminAi.lastMonitorAt
+      }, origin);
+    }
+    if (u.pathname === '/admin/ai/chat' && req.method === 'POST') {
+      const payload = await body(req, 32768);
+      const message = String(payload.message || '').trim();
+      if (!message) return json(res, 400, { ok: false, error: 'message erforderlich' }, origin);
+      const intents = detectAdminAiIntents(message);
+      const valuation = calculateAdminAiValuation();
+      adminAiPushChat('admin', message, { intents });
+      const actions = buildAdminAiActionSuggestions(message, intents);
+      const assistantReply = buildAdminAiReply(message, intents, valuation);
+      adminAiPushChat('assistant', assistantReply, {
+        intents,
+        actions: actions.map(item => ({
+          id: item.id,
+          action: item.action,
+          title: item.title,
+          risk: item.risk,
+          detail: item.detail,
+          username: item.username || null
+        }))
+      });
+      adminAiAudit(state.admin.username, 'chat', 'antwort erstellt', 'ok', `Intents: ${intents.join(',')}`);
+      saveState();
+      return json(res, 200, {
+        ok: true,
+        message: assistantReply,
+        intents,
+        actions: actions.map(item => ({
+          id: item.id,
+          action: item.action,
+          title: item.title,
+          risk: item.risk,
+          detail: item.detail,
+          requiresExtraConfirmation: item.risk === 'high',
+          username: item.username || null
+        })),
+        valuation
+      }, origin);
+    }
+    const adminAiActionMatch = u.pathname.match(/^\/admin\/ai\/action\/([^/]+)$/);
+    if (adminAiActionMatch && req.method === 'POST') {
+      const actionId = decodeURIComponent(adminAiActionMatch[1]);
+      const payload = await body(req, 16384);
+      const proposal = state.adminAi.pendingActions[actionId];
+      if (!proposal) return json(res, 404, { ok: false, error: 'Aktion nicht gefunden' }, origin);
+      if (payload.cancel === true) {
+        proposal.status = 'cancelled';
+        proposal.cancelledAt = new Date().toISOString();
+        adminAiAudit(state.admin.username, proposal.action, 'abgebrochen', 'cancelled', proposal.detail || '');
+        saveState();
+        return json(res, 200, { ok: true, status: proposal.status, message: 'Aktion wurde abgebrochen.' }, origin);
+      }
+      if (proposal.risk === 'high' && payload.extraConfirm !== true) {
+        return json(res, 409, { ok: false, needsExtraConfirmation: true, error: 'High-Risk-Aktion benötigt zusätzliche Bestätigung.' }, origin);
+      }
+      if (payload.confirm !== true) {
+        return json(res, 400, { ok: false, error: 'Bestätigung erforderlich (confirm=true).' }, origin);
+      }
+      try {
+        const result = executeAdminAiAction(proposal, payload);
+        proposal.status = 'executed';
+        proposal.executedAt = new Date().toISOString();
+        proposal.result = result;
+        const statusDetail = result && result.message ? result.message : 'ausgeführt';
+        adminAiAudit(state.admin.username, proposal.action, statusDetail, 'ok', proposal.detail || '');
+        saveState();
+        return json(res, 200, { ok: true, status: proposal.status, result, message: statusDetail }, origin);
+      } catch (err) {
+        proposal.status = 'failed';
+        proposal.failedAt = new Date().toISOString();
+        proposal.error = err.message;
+        adminAiAudit(state.admin.username, proposal.action, err.message, 'error', proposal.detail || '');
+        saveState();
+        return json(res, 400, { ok: false, error: err.message }, origin);
+      }
+    }
+    if (u.pathname === '/admin/ai/alerts' && req.method === 'GET') {
+      runAdminAiMonitor();
+      const alerts = (state.adminAi.alerts || []).slice(0, 60);
+      const severity = alerts.reduce((acc, alert) => {
+        const key = alert.severity === 'critical' ? 'critical' : alert.severity === 'important' ? 'important' : 'info';
+        acc[key]++;
+        return acc;
+      }, { critical: 0, important: 0, info: 0 });
+      return json(res, 200, { ok: true, alerts, severity, total: alerts.length, lastMonitorAt: state.adminAi.lastMonitorAt }, origin);
+    }
+    if (u.pathname === '/admin/ai/valuation' && req.method === 'GET') {
+      const valuation = calculateAdminAiValuation();
+      state.adminAi.monitor.lastValue = valuation.value;
+      saveState();
+      return json(res, 200, { ok: true, valuation, generatedAt: new Date().toISOString() }, origin);
+    }
+    if (u.pathname === '/admin/ai/audit-log' && req.method === 'GET') {
+      return json(res, 200, { ok: true, entries: (state.adminAi.auditLog || []).slice(0, 120) }, origin);
     }
 
     // Dashboard

@@ -147,6 +147,17 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <span class="lock-badge ok">🔓 Tresor entsperrt</span>
   </header>
   <main>
+    <!-- Nutzer-Profil (wird angezeigt wenn eingeloggt) -->
+    <div class="card hidden" id="userProfileCard">
+      <h2>👤 Mein Konto</h2>
+      <p class="muted small">Angemeldet als: <strong id="userProfileName"></strong></p>
+      <p class="muted small" id="userProfileEmail"></p>
+      <div id="userPurchasedModules" style="margin:8px 0"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost tiny danger" id="userLogoutBtn">🚪 Abmelden</button>
+      </div>
+    </div>
+
     <div class="card">
       <h2>🧩 Ihre Module</h2>
       <div id="ownedList"><p class="muted small">Noch keine Module freigeschaltet.</p></div>
@@ -433,20 +444,29 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 <section id="screenUserLogin" class="hidden">
   <header><div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div><p class="muted">Kundenbereich</p></header>
   <main>
-    <div class="card"><h2>🔑 Anmelden</h2>
-      <label>Benutzername</label><input id="uLoginUser">
-      <label>Passwort</label><input id="uLoginPw" type="password">
+    <!-- Login-Formular -->
+    <div class="card" id="uLoginBox"><h2>🔑 Anmelden</h2>
+      <label>Benutzername</label><input id="uLoginUser" autocomplete="username">
+      <label>Passwort</label><input id="uLoginPw" type="password" autocomplete="current-password">
       <div id="uLoginErr" class="small" style="color:var(--red);margin-top:6px"></div>
-      <div class="row" style="margin-top:12px"><button id="uLoginBtn">Anmelden</button><button class="ghost" id="uActivateSwitch">Neu aktivieren</button></div>
+      <div class="row" style="margin-top:12px">
+        <button id="uLoginBtn">Anmelden</button>
+        <button class="ghost" id="uRegisterSwitch">Registrieren</button>
+      </div>
+      <p class="small muted" style="margin-top:10px">Passwort vergessen? Schreib uns eine E-Mail: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">Support kontaktieren</a></p>
     </div>
-    <div class="card hidden" id="uActivateBox"><h2>✉️ Aktivierungscode einlösen</h2>
-      <p class="muted small">Sie haben den Code nach dem Kauf per E-Mail erhalten. Er kann nur einmal verwendet werden.</p>
-      <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL">
-      <label>E-Mail (aus dem Kauf)</label><input id="uEmail" type="email">
-      <label>Wunsch-Benutzername</label><input id="uNewUser">
-      <label>Wunsch-Passwort (mind. 10 Zeichen)</label><input id="uNewPw" type="password">
+    <!-- Registrierungs-Formular -->
+    <div class="card hidden" id="uRegisterBox"><h2>✉️ Registrieren</h2>
+      <p class="muted small">Du benötigst einen Aktivierungscode, den du nach dem Kauf erhältst. Jeder Code kann nur einmal verwendet werden.</p>
+      <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL" autocomplete="off">
+      <label>Benutzername (3–40 Zeichen)</label><input id="uNewUser" autocomplete="username">
+      <label>E-Mail-Adresse</label><input id="uEmail" type="email" autocomplete="email">
+      <label>Passwort (mind. 8 Zeichen)</label><input id="uNewPw" type="password" autocomplete="new-password">
       <div id="uActErr" class="small" style="color:var(--red);margin-top:6px"></div>
-      <div style="margin-top:12px"><button id="uActivateBtn">Aktivieren & Anmelden</button></div>
+      <div class="row" style="margin-top:12px">
+        <button id="uActivateBtn">Registrieren &amp; Anmelden</button>
+        <button class="ghost" id="uLoginSwitch">Bereits registriert?</button>
+      </div>
     </div>
   </main>
 </section>

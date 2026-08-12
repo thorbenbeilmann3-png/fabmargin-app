@@ -399,6 +399,35 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <div id="changePwStatus" class="small" style="margin-top:8px"></div>
       </div>
 
+      <!-- Beta-Tester Verwaltung -->
+      <div class="card">
+        <h2>🧪 Beta-Tester</h2>
+        <p class="muted small">Lade Nutzer als Beta-Tester ein. Links sind 7 Tage gültig.</p>
+        <label>Name des Testers</label>
+        <input id="betaInviteName" placeholder="Max Mustermann">
+        <label>E-Mail des Testers</label>
+        <input id="betaInviteEmail" type="email" placeholder="max@example.com">
+        <div style="margin-top:10px">
+          <button id="betaInviteBtn">🔗 Einladungslink erstellen</button>
+        </div>
+        <div id="betaGeneratedLink" style="margin-top:10px;display:none">
+          <div class="warn" style="word-break:break-all;font-family:monospace;font-size:12px" id="betaLinkText"></div>
+          <button class="ghost tiny" id="betaCopyLinkBtn" style="margin-top:6px">📋 Link kopieren</button>
+        </div>
+        <div style="margin-top:12px">
+          <button class="ghost tiny" id="betaLoadListBtn">Beta-Tester anzeigen</button>
+          <div id="betaTesterList" style="margin-top:10px"></div>
+        </div>
+      </div>
+
+      <!-- Gesperrte Instanzen -->
+      <div class="card">
+        <h2>🔒 Gesperrte App-Instanzen</h2>
+        <p class="muted small">App-Kopien die von zu vielen IPs genutzt wurden.</p>
+        <button class="ghost tiny" id="instancesLoadBtn">Instanzen laden</button>
+        <div id="instancesList" style="margin-top:10px"></div>
+      </div>
+
       <!-- Support-Nachrichten -->
       <div class="card">
         <h2>🎧 Support-Nachrichten</h2>
@@ -429,6 +458,28 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
 </section>
 
+
+<!-- SCREEN: Beta-Willkommen -->
+<section id="screenBeta" class="hidden">
+  <header>
+    <div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div>
+    <p class="muted">Beta-Programm</p>
+  </header>
+  <main>
+    <div class="card" style="text-align:center">
+      <div style="font-size:56px;margin-bottom:12px">🧪</div>
+      <h2>Willkommen im Beta-Programm!</h2>
+      <p class="muted small" style="margin-bottom:16px">Du wurdest als Beta-Tester eingeladen. Als Beta-Tester erhältst du frühen Zugang zu neuen Funktionen und hilfst uns, die App zu verbessern.</p>
+      <div id="betaInviteInfo" class="warn" style="margin-bottom:20px;text-align:left"></div>
+      <button id="betaActivateBtn" style="width:100%">🚀 Beta-Zugang aktivieren</button>
+      <div id="betaActivateStatus" class="small muted" style="margin-top:12px"></div>
+    </div>
+    <div class="card small muted">
+      <b>Was bedeutet Beta-Tester?</b><br>
+      Du testest neue Funktionen vor dem offiziellen Release. Dein Feedback hilft uns, die App besser zu machen. Dein Zugang wurde von einem Admin persönlich eingeladen.
+    </div>
+  </main>
+</section>
 
 <section id="screenUserLogin" class="hidden">
   <header><div class="brand"><img src="icon-192.png" alt=""> FabMargin 3D</div><p class="muted">Kundenbereich</p></header>
@@ -505,9 +556,22 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </div>
 </div>
 
+<!-- Anti-Piracy Sperr-Overlay -->
+<div id="piracyOverlay" style="display:none;position:fixed;inset:0;z-index:99999;background:#0a0005;align-items:center;justify-content:center;flex-direction:column;text-align:center;padding:32px">
+  <div style="max-width:420px">
+    <div style="font-size:64px;margin-bottom:16px">🚫</div>
+    <h1 style="color:#ff4455;font-size:24px;margin:0 0 16px">Diese App-Kopie wurde gesperrt</h1>
+    <p style="color:#ffaaaa;margin:0 0 20px;font-size:15px">Es wurde festgestellt, dass diese App-Instanz von zu vielen verschiedenen Geräten genutzt wird. Die App wurde zum Schutz vor Piraterie gesperrt.</p>
+    <p style="color:#ffaaaa;margin:0 0 28px;font-size:15px">Bitte kaufe die offizielle Version.</p>
+    <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="display:inline-block;background:#ff4455;color:white;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">✉️ Kontakt aufnehmen</a>
+    <p class="muted small" style="margin-top:16px">printprofit3d_business.stoneware127@passmail.net</p>
+  </div>
+</div>
+
 <script src="features/user-auth.js"></script>
 <script src="features/community.js"></script>
 <script src="features/integrity.js"></script>
+<script src="features/beta.js"></script>
 <script src="app-main.js"></script>
 <script src="app.js"></script>
 <script src="capacitor.js"></script>

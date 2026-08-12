@@ -333,6 +333,8 @@ const server = http.createServer(async (req, res) => {
       const bj = await body(req);
       const token = bj.token || u.searchParams.get('token') || '';
       if (!token) return json(res, 400, { ok: false, error: 'token erforderlich' }, origin);
+      // Validate token format: base64url characters only, no prototype keys possible
+      if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return json(res, 400, { ok: false, error: 'Ungültiger Token' }, origin);
       if (!Object.prototype.hasOwnProperty.call(state.betaInvites || {}, token)) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);
       const invite = state.betaInvites[token];
       if (!invite) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);

@@ -55,6 +55,34 @@ if (!state.community) { state.community = []; saveState(); }    // [{id, title, 
 if (!state.supportMessages) { state.supportMessages = []; saveState(); }
 if (!state.betaInvites) { state.betaInvites = {}; saveState(); }  // token -> {name, email, createdAt, expiresAt, usedBy, usedAt, revoked}
 if (!state.instances) { state.instances = {}; saveState(); }      // instanceId -> {ips: [], blockedAt, blockReason}
+if (!state.slicerProfiles) { state.slicerProfiles = []; saveState(); }
+if (!state.operatorRequests) { state.operatorRequests = []; saveState(); }
+if (!state.operatorInvites) { state.operatorInvites = {}; saveState(); }
+if (!state.diagnostics) { state.diagnostics = []; saveState(); }
+if (!state.cmsContent) {
+  state.cmsContent = {
+    heroTitle: 'Willkommen bei FabMargin 3D',
+    heroText: 'Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.',
+    premiumTips: [
+      'Nutze Premium-Credits für KI-Checks und verifizierte Profile.',
+      'Slicer-Profile aus dem Marktplatz können live bewertet und geteilt werden.',
+      'Top Creator erhalten zusätzliche Sichtbarkeit im Marktplatz.'
+    ],
+    premiumHeadline: '💳 Premium-Credits'
+  };
+  saveState();
+}
+let usersUpdated = false;
+for (const user of Object.values(state.users)) {
+  if (typeof user.points !== 'number') { user.points = 0; usersUpdated = true; }
+  if (!Array.isArray(user.pointHistory)) { user.pointHistory = []; usersUpdated = true; }
+  if (!Array.isArray(user.badges)) { user.badges = []; usersUpdated = true; }
+  if (!Array.isArray(user.notifications)) { user.notifications = []; usersUpdated = true; }
+  if (!Array.isArray(user.purchasedSlicerProfiles)) { user.purchasedSlicerProfiles = []; usersUpdated = true; }
+  if (!Array.isArray(user.redeemedRewards)) { user.redeemedRewards = []; usersUpdated = true; }
+  if (!user.role) { user.role = 'user'; usersUpdated = true; }
+}
+if (usersUpdated) saveState();
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -72,8 +100,93 @@ function json(res, status, obj, origin) {
   if (origin) headers['Access-Control-Allow-Origin'] = origin;
   res.writeHead(status, headers); res.end(JSON.stringify(obj));
 }
-async function body(req) { let s = ''; for await (const c of req) { s += c; if (s.length > 32768) throw new Error('Payload zu groß'); } return s ? JSON.parse(s) : {}; }
+async function body(req, maxLen = 32768) { let s = ''; for await (const c of req) { s += c; if (s.length > maxLen) throw new Error('Payload zu groß'); } return s ? JSON.parse(s) : {}; }
 function originAllowed(req) { const o = req.headers.origin; if (!o) return ''; if (allowedOrigins.length && !allowedOrigins.includes(o)) return null; return o; }
+function bearerToken(req) {
+  const h = String(req.headers.authorization || '');
+  return h.startsWith('Bearer ') ? h.slice(7) : '';
+}
+function getUserSession(req) {
+  const t = bearerToken(req);
+  const sess = sessions.get('user:' + t);
+  if (!sess || sess.exp < Date.now()) {
+    if (t) sessions.delete('user:' + t);
+    return null;
+  }
+  return { token: t, ...sess };
+}
+function getCurrentUser(req) {
+  const sess = getUserSession(req);
+  if (!sess) return null;
+  const user = state.users[sess.username];
+  if (!user) return null;
+  if (typeof user.points !== 'number') user.points = 0;
+  if (!Array.isArray(user.pointHistory)) user.pointHistory = [];
+  if (!Array.isArray(user.badges)) user.badges = [];
+  if (!Array.isArray(user.notifications)) user.notifications = [];
+  if (!Array.isArray(user.purchasedSlicerProfiles)) user.purchasedSlicerProfiles = [];
+  if (!Array.isArray(user.redeemedRewards)) user.redeemedRewards = [];
+  if (!user.role) user.role = 'user';
+  return { username: sess.username, token: sess.token, user };
+}
+function hasOperatorAccess(req) {
+  if (sessionOk(req)) return true;
+  const viewer = getCurrentUser(req);
+  return !!(viewer && viewer.user.role === 'operator');
+}
+function notifyUser(username, message, type = 'info') {
+  const user = state.users[username];
+  if (!user) return;
+  if (!Array.isArray(user.notifications)) user.notifications = [];
+  user.notifications.unshift({ id: crypto.randomUUID(), type, message, createdAt: new Date().toISOString(), read: false });
+  user.notifications = user.notifications.slice(0, 30);
+}
+function addPoints(username, amount, reason) {
+  const user = state.users[username];
+  if (!user) return 0;
+  if (typeof user.points !== 'number') user.points = 0;
+  if (!Array.isArray(user.pointHistory)) user.pointHistory = [];
+  user.points += amount;
+  user.pointHistory.unshift({ id: crypto.randomUUID(), amount, reason, createdAt: new Date().toISOString() });
+  user.pointHistory = user.pointHistory.slice(0, 50);
+  return user.points;
+}
+function awardBadge(username, badge) {
+  const user = state.users[username];
+  if (!user) return;
+  if (!Array.isArray(user.badges)) user.badges = [];
+  if (!user.badges.includes(badge)) user.badges.push(badge);
+}
+function roleFromInvite(email) {
+  const invite = Object.values(state.operatorInvites || {}).find(x => x.email === email && !x.acceptedAt);
+  if (!invite) return 'user';
+  invite.acceptedAt = new Date().toISOString();
+  return 'operator';
+}
+function sanitizeImage(input) {
+  if (typeof input !== 'string') return null;
+  const value = input.trim();
+  if (!value) return null;
+  if (!/^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/i.test(value)) return null;
+  if (value.length > 350000) return null;
+  return value;
+}
+function sanitizeDiagnosticFlags(input) {
+  const allowed = new Set(['devtools', 'many_errors', 'window.error', 'unhandledrejection', 'interval']);
+  return Array.isArray(input) ? input.map(x => String(x || '').trim()).filter(x => allowed.has(x)).slice(0, 10) : [];
+}
+function normalizeProfileRating(profile) {
+  const ratings = Array.isArray(profile.ratings) ? profile.ratings : [];
+  if (!ratings.length) return profile.initialRating || profile.rating || 0;
+  const avg = ratings.reduce((sum, item) => sum + Number(item.rating || 0), 0) / ratings.length;
+  return Math.round(avg * 10) / 10;
+}
+function canOperatorModerate(pathname, method) {
+  return (
+    (method === 'GET' && ['/admin/dashboard', '/admin/security-log', '/admin/community', '/admin/diagnostics'].includes(pathname)) ||
+    (method === 'POST' && /^\/admin\/community\/[^/]+\/(approve|reject)$/.test(pathname))
+  );
+}
 
 // -------- Google Play Billing: JWT-Signatur mit Service-Account --------
 async function googleAccessToken() {
@@ -182,9 +295,22 @@ const server = http.createServer(async (req, res) => {
       if (ac.usedBy) return json(res, 400, { ok: false, error: 'Aktivierungscode wurde bereits verwendet' }, origin);
       const salt = b64(crypto.randomBytes(16));
       const passwordHash = hashPassword(password, salt);
-      state.users[username] = { email, passwordHash, salt, activatedAt: new Date().toISOString(), blocked: false };
+      state.users[username] = {
+        email,
+        passwordHash,
+        salt,
+        activatedAt: new Date().toISOString(),
+        blocked: false,
+        role: roleFromInvite(email),
+        points: 0,
+        pointHistory: [],
+        badges: [],
+        notifications: [],
+        purchasedSlicerProfiles: []
+      };
       state.activationCodes[code].usedBy = username;
       state.activationCodes[code].usedAt = new Date().toISOString();
+      if (state.users[username].role === 'operator') notifyUser(username, 'Du wurdest als Operator freigeschaltet.', 'operator');
       saveState();
       const token = b64(crypto.randomBytes(32));
       sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
@@ -221,13 +347,21 @@ const server = http.createServer(async (req, res) => {
 
     // Profil abrufen (geschützt)
     if (u.pathname === '/auth/profile' && req.method === 'GET') {
-      const h = String(req.headers.authorization || '');
-      const t = h.startsWith('Bearer ') ? h.slice(7) : '';
-      const sess = sessions.get('user:' + t);
-      if (!sess || sess.exp < Date.now()) { sessions.delete('user:' + t); return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin); }
-      const user = state.users[sess.username];
-      if (!user) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
-      return json(res, 200, { ok: true, username: sess.username, email: user.email, activatedAt: user.activatedAt, blocked: user.blocked }, origin);
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const user = viewer.user;
+      return json(res, 200, {
+        ok: true,
+        username: viewer.username,
+        email: user.email,
+        activatedAt: user.activatedAt,
+        blocked: user.blocked,
+        role: user.role || 'user',
+        points: user.points || 0,
+        badges: user.badges || [],
+        notifications: user.notifications || [],
+        purchasedSlicerProfiles: user.purchasedSlicerProfiles || []
+      }, origin);
     }
 
     // Support-Chat: Nachricht speichern
@@ -244,13 +378,268 @@ const server = http.createServer(async (req, res) => {
 
     // Support-Chat: Nachrichten abrufen (Admin)
     if (u.pathname === '/support/messages' && req.method === 'GET') {
+      if (!hasOperatorAccess(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
       return json(res, 200, { ok: true, messages: state.supportMessages || [] }, origin);
+    }
+
+    if (u.pathname === '/content/live' && req.method === 'GET') {
+      return json(res, 200, { ok: true, content: state.cmsContent || {} }, origin);
+    }
+
+    if (u.pathname === '/user/points' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const user = viewer.user;
+      return json(res, 200, {
+        ok: true,
+        points: user.points || 0,
+        badges: user.badges || [],
+        history: user.pointHistory || [],
+        redeemOptions: [
+          { id: 'premium_tip_pack', title: 'Premium-Tipps', cost: 30, unlocked: (user.redeemedRewards || []).includes('premium_tip_pack') },
+          { id: 'top_creator_badge', title: 'Top Creator Badge', cost: 120, unlocked: (user.badges || []).includes('Top Creator') }
+        ]
+      }, origin);
+    }
+
+    if (u.pathname === '/user/points/redeem' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const data = await body(req);
+      const reward = String(data.rewardId || '');
+      const user = viewer.user;
+      if (!Array.isArray(user.redeemedRewards)) user.redeemedRewards = [];
+      const rewards = {
+        premium_tip_pack: { cost: 30, title: 'Premium-Tipps' },
+        top_creator_badge: { cost: 120, title: 'Top Creator Badge' }
+      };
+      if (!rewards[reward]) return json(res, 400, { ok: false, error: 'Unbekannte Belohnung' }, origin);
+      if (reward === 'top_creator_badge' && user.badges.includes('Top Creator')) return json(res, 200, { ok: true, alreadyRedeemed: true, points: user.points || 0 }, origin);
+      if (reward === 'premium_tip_pack' && user.redeemedRewards.includes(reward)) return json(res, 200, { ok: true, alreadyRedeemed: true, points: user.points || 0 }, origin);
+      if ((user.points || 0) < rewards[reward].cost) return json(res, 400, { ok: false, error: 'Nicht genug Punkte' }, origin);
+      user.points -= rewards[reward].cost;
+      user.pointHistory.unshift({ id: crypto.randomUUID(), amount: -rewards[reward].cost, reason: 'Eingelöst: ' + rewards[reward].title, createdAt: new Date().toISOString() });
+      if (reward === 'premium_tip_pack') user.redeemedRewards.push(reward);
+      if (reward === 'top_creator_badge') awardBadge(viewer.username, 'Top Creator');
+      saveState();
+      return json(res, 200, { ok: true, points: user.points, badges: user.badges || [], redeemedRewards: user.redeemedRewards || [] }, origin);
     }
 
     // ---------- Geschützte Admin-Endpunkte ----------
 
     if (u.pathname.startsWith('/admin/') && u.pathname !== '/admin/login') {
-      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      if (canOperatorModerate(u.pathname, req.method)) {
+        if (!hasOperatorAccess(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      } else if (!sessionOk(req)) {
+        return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      }
+    }
+
+    if (u.pathname === '/slicer/profile' && req.method === 'POST') {
+      if (!rateOk('slicer_create:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const b = await body(req, 1024 * 1024);
+      const name = String(b.name || '').trim();
+      const printerModel = String(b.printerModel || '').trim();
+      const slicer = String(b.slicer || '').trim();
+      const description = String(b.description || '').trim();
+      const settings = b.settings || {};
+      const images = Array.isArray(b.images) ? b.images.map(sanitizeImage).filter(Boolean).slice(0, 3) : [];
+      const initialRating = Math.max(1, Math.min(5, Number(b.rating || 0) || 0));
+      if (!name || !printerModel || !slicer || !description) return json(res, 400, { ok: false, error: 'Bitte alle Pflichtfelder ausfüllen' }, origin);
+      if (!['Cura', 'PrusaSlicer', 'Bambu Studio'].includes(slicer)) return json(res, 400, { ok: false, error: 'Slicer nicht unterstützt' }, origin);
+      if (!settings.layerHeight || !settings.speed || !settings.temp) return json(res, 400, { ok: false, error: 'Layer Height, Speed und Temp sind erforderlich' }, origin);
+      const item = {
+        id: crypto.randomUUID(),
+        owner: viewer.username,
+        name: name.slice(0, 80),
+        printerModel: printerModel.slice(0, 80),
+        slicer,
+        settings: {
+          layerHeight: String(settings.layerHeight).slice(0, 40),
+          speed: String(settings.speed).slice(0, 40),
+          temp: String(settings.temp).slice(0, 40)
+        },
+        description: description.slice(0, 1000),
+        images,
+        status: 'pending',
+        initialRating,
+        rating: initialRating,
+        ratings: [],
+        purchases: [],
+        purchaseCount: 0,
+        createdAt: new Date().toISOString()
+      };
+      state.slicerProfiles.unshift(item);
+      saveState();
+      incident('slicer_profile_created', 'user=' + viewer.username + ' id=' + item.id, 'info');
+      return json(res, 200, { ok: true, profile: item }, origin);
+    }
+
+    if (u.pathname === '/slicer/profiles' && req.method === 'GET') {
+      const items = (state.slicerProfiles || [])
+        .filter(x => x.status === 'approved')
+        .map(x => ({
+          id: x.id,
+          owner: x.owner,
+          name: x.name,
+          printerModel: x.printerModel,
+          slicer: x.slicer,
+          settings: x.settings,
+          description: x.description,
+          images: x.images || [],
+          rating: normalizeProfileRating(x),
+          purchaseCount: x.purchaseCount || 0,
+          badges: (state.users[x.owner]?.badges) || []
+        }));
+      return json(res, 200, { ok: true, profiles: items }, origin);
+    }
+
+    const slicerBuyMatch = u.pathname.match(/^\/slicer\/profile\/([^/]+)\/buy$/);
+    if (slicerBuyMatch && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const b = await body(req);
+      const method = 'points';
+      const profile = (state.slicerProfiles || []).find(x => x.id === slicerBuyMatch[1] && x.status === 'approved');
+      if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
+      if (profile.owner === viewer.username) return json(res, 400, { ok: false, error: 'Eigenes Profil kann nicht gekauft werden' }, origin);
+      if ((viewer.user.purchasedSlicerProfiles || []).includes(profile.id)) return json(res, 200, { ok: true, alreadyOwned: true, profileId: profile.id }, origin);
+      if ((viewer.user.points || 0) < 40) return json(res, 400, { ok: false, error: 'Nicht genug Punkte' }, origin);
+      viewer.user.points -= 40;
+      viewer.user.pointHistory.unshift({ id: crypto.randomUUID(), amount: -40, reason: 'Slicer-Profil gekauft: ' + profile.name, createdAt: new Date().toISOString() });
+      viewer.user.purchasedSlicerProfiles.push(profile.id);
+      profile.purchases.push({ username: viewer.username, method, createdAt: new Date().toISOString() });
+      profile.purchaseCount = profile.purchases.length;
+      addPoints(profile.owner, 20, 'Profil gekauft: ' + profile.name);
+      if (profile.purchaseCount === 10) addPoints(profile.owner, 100, 'Bonus für 10 Verkäufe');
+      saveState();
+      incident('slicer_profile_bought', 'buyer=' + viewer.username + ' profile=' + profile.id, 'info');
+      return json(res, 200, { ok: true, profileId: profile.id, method, points: viewer.user.points || 0 }, origin);
+    }
+
+    const slicerRateMatch = u.pathname.match(/^\/slicer\/profile\/([^/]+)\/rate$/);
+    if (slicerRateMatch && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
+      const b = await body(req);
+      const rating = Math.max(1, Math.min(5, Number(b.rating || 0)));
+      const profile = (state.slicerProfiles || []).find(x => x.id === slicerRateMatch[1] && x.status === 'approved');
+      if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
+      if (!(viewer.user.purchasedSlicerProfiles || []).includes(profile.id)) return json(res, 403, { ok: false, error: 'Bitte Profil zuerst kaufen' }, origin);
+      const existing = (profile.ratings || []).find(x => x.username === viewer.username);
+      const previous = existing ? existing.rating : null;
+      if (existing) existing.rating = rating;
+      else profile.ratings.push({ username: viewer.username, rating, createdAt: new Date().toISOString() });
+      if (rating === 5 && previous !== 5) addPoints(profile.owner, 10, '5★ Bewertung für ' + profile.name);
+      profile.rating = normalizeProfileRating(profile);
+      saveState();
+      return json(res, 200, { ok: true, rating: profile.rating }, origin);
+    }
+
+    if (u.pathname === '/admin/slicer/pending' && req.method === 'GET') {
+      const items = (state.slicerProfiles || []).filter(x => x.status === 'pending');
+      return json(res, 200, { ok: true, profiles: items }, origin);
+    }
+
+    const approveSlicerMatch = u.pathname.match(/^\/admin\/slicer\/approve\/([^/]+)$/);
+    if (approveSlicerMatch && req.method === 'POST') {
+      const profile = (state.slicerProfiles || []).find(x => x.id === approveSlicerMatch[1]);
+      if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
+      if (profile.status !== 'approved') {
+        profile.status = 'approved';
+        profile.approvedAt = new Date().toISOString();
+        addPoints(profile.owner, 50, 'Slicer-Profil freigegeben: ' + profile.name);
+        notifyUser(profile.owner, 'Dein Slicer-Profil "' + profile.name + '" wurde freigegeben.', 'success');
+        saveState();
+      }
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    if (u.pathname === '/operator/request' && req.method === 'POST') {
+      const viewer = getCurrentUser(req);
+      if (!viewer || viewer.user.role !== 'operator') return json(res, 403, { ok: false, error: 'Nur Operatoren dürfen Anfragen stellen' }, origin);
+      const b = await body(req);
+      const action = String(b.action || '').trim();
+      const reason = String(b.reason || '').trim();
+      if (!action || !reason) return json(res, 400, { ok: false, error: 'Aktion und Begründung erforderlich' }, origin);
+      const request = { id: crypto.randomUUID(), operator: viewer.username, action: action.slice(0, 120), reason: reason.slice(0, 500), status: 'pending', createdAt: new Date().toISOString() };
+      state.operatorRequests.unshift(request);
+      saveState();
+      return json(res, 200, { ok: true, request }, origin);
+    }
+
+    if (u.pathname === '/admin/operator/requests' && req.method === 'GET') {
+      return json(res, 200, { ok: true, requests: state.operatorRequests || [] }, origin);
+    }
+
+    const operatorReqMatch = u.pathname.match(/^\/admin\/operator\/requests\/([^/]+)\/(approve|reject)$/);
+    if (operatorReqMatch && req.method === 'POST') {
+      const request = (state.operatorRequests || []).find(x => x.id === operatorReqMatch[1]);
+      if (!request) return json(res, 404, { ok: false, error: 'Anfrage nicht gefunden' }, origin);
+      request.status = operatorReqMatch[2] === 'approve' ? 'approved' : 'rejected';
+      request.decidedAt = new Date().toISOString();
+      notifyUser(request.operator, 'Deine Operator-Anfrage "' + request.action + '" wurde ' + (request.status === 'approved' ? 'genehmigt' : 'abgelehnt') + '.', request.status === 'approved' ? 'success' : 'warn');
+      saveState();
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    if (u.pathname === '/admin/operator/invite' && req.method === 'POST') {
+      const b = await body(req);
+      const username = String(b.username || '').trim();
+      const email = String(b.email || '').trim();
+      if (!username && !email) return json(res, 400, { ok: false, error: 'username oder email erforderlich' }, origin);
+      if (username && state.users[username]) {
+        state.users[username].role = 'operator';
+        notifyUser(username, 'Du wurdest als Operator eingeladen.', 'operator');
+      } else if (email) {
+        state.operatorInvites[crypto.randomUUID()] = { email: email.slice(0, 200), createdAt: new Date().toISOString(), acceptedAt: null };
+      } else {
+        return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      }
+      saveState();
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    if (u.pathname === '/diagnostics/report' && req.method === 'POST') {
+      if (!rateOk('diagnostics:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const viewer = getCurrentUser(req);
+      const b = await body(req);
+      const report = {
+        id: crypto.randomUUID(),
+        username: viewer?.username || 'gast',
+        devtoolsDetected: !!b.devtoolsDetected,
+        errorCount: Math.max(0, Number(b.errorCount || 0)),
+        flags: sanitizeDiagnosticFlags(b.flags),
+        userAgent: String(b.userAgent || req.headers['user-agent'] || '').slice(0, 300),
+        createdAt: new Date().toISOString()
+      };
+      state.diagnostics.unshift(report);
+      state.diagnostics = state.diagnostics.slice(0, 200);
+      saveState();
+      return json(res, 200, { ok: true, reportId: report.id }, origin);
+    }
+
+    if (u.pathname === '/admin/diagnostics' && req.method === 'GET') {
+      return json(res, 200, { ok: true, reports: state.diagnostics || [] }, origin);
+    }
+
+    if (u.pathname === '/admin/content' && req.method === 'GET') {
+      return json(res, 200, { ok: true, content: state.cmsContent || {} }, origin);
+    }
+
+    if (u.pathname === '/admin/content/update' && req.method === 'POST') {
+      const b = await body(req, 65536);
+      const premiumTips = Array.isArray(b.premiumTips) ? b.premiumTips.map(x => String(x || '').trim()).filter(Boolean).slice(0, 6) : [];
+      state.cmsContent = {
+        heroTitle: String(b.heroTitle || state.cmsContent?.heroTitle || '').trim().slice(0, 120),
+        heroText: String(b.heroText || state.cmsContent?.heroText || '').trim().slice(0, 500),
+        premiumHeadline: String(b.premiumHeadline || state.cmsContent?.premiumHeadline || '').trim().slice(0, 120),
+        premiumTips: premiumTips.length ? premiumTips : (state.cmsContent?.premiumTips || [])
+      };
+      saveState();
+      return json(res, 200, { ok: true, content: state.cmsContent }, origin);
     }
 
     // Dashboard
@@ -263,6 +652,8 @@ const server = http.createServer(async (req, res) => {
         unusedCodes: Object.values(state.activationCodes || {}).filter(c => !c.usedBy).length,
         communityTotal: (state.community || []).length,
         communityPending: (state.community || []).filter(x => x.status === 'pending').length,
+        slicerPending: (state.slicerProfiles || []).filter(x => x.status === 'pending').length,
+        diagnostics: (state.diagnostics || []).length,
         purchasesPaused: state.security.purchasesPaused,
         pauseReason: state.security.pauseReason,
         failedLogins: state.security.failedLogins,

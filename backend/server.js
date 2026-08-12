@@ -798,7 +798,7 @@ const server = http.createServer(async (req, res) => {
       if (payload.disable) {
         viewer.user.twoFactor = { enabled: false, secret: '', pendingSecret: '', backupCodeHashes: [], recoveryCodesPreview: [], verifiedAt: null };
         saveState();
-        return json(res, 200, { ok: true, disabled: true });
+        return json(res, 200, { ok: true, disabled: true }, origin);
       }
       if (viewer.user.twoFactor.enabled) return json(res, 400, { ok: false, error: '2FA ist bereits aktiv. Bitte erst deaktivieren, bevor du neue Backup-Codes erzeugst.' }, origin);
       const secret = generateTotpSecret();
@@ -976,6 +976,7 @@ const server = http.createServer(async (req, res) => {
       params.set('line_items[0][price_data][currency]', 'eur');
       params.set('line_items[0][price_data][unit_amount]', String(product.amount));
       params.set('line_items[0][price_data][product_data][name]', product.title);
+      if (product.type === 'subscription') params.set('line_items[0][price_data][recurring][interval]', 'month');
       params.set('line_items[0][quantity]', '1');
       try {
         const stripeResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {

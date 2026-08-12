@@ -1313,7 +1313,7 @@
     }
   }
   async function saveBannerSettings() {
-    const status = $('twoFactorStatus');
+    const status = $('bannerSettingsStatus');
     try {
       await api('/user/settings', { method: 'POST', auth: 'user', body: { bannerEnabled: !!$('bannerEnabledToggle')?.checked } });
       if (status) {
@@ -1471,7 +1471,7 @@
           <strong>${esc(profile.name)}</strong> · ${esc(profile.status)}<br>
           <span class="muted">${esc(profile.printerModel)}</span>
           <div class="gallery-strip">
-            ${(profile.images || []).map((src, index) => `
+            ${(profile.images || []).filter(isSafeImageSrc).map((src, index) => `
               <div class="gallery-item">
                 <img src="${src}" alt="Profilbild">
                 <button class="danger tiny" type="button" data-delete-image="${esc(profile.id)}:${index}">✕</button>

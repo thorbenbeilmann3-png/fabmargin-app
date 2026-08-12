@@ -495,6 +495,7 @@
   function adminAiRiskLabel(risk) {
     if (risk === 'high') return 'hoch';
     if (risk === 'medium') return 'mittel';
+    if (risk === 'low') return 'niedrig';
     return 'niedrig';
   }
   function adminAiSeverityClass(severity) {
@@ -561,13 +562,10 @@
       if (!username) return;
       payload.username = username.trim();
     }
-    if (action.risk === 'high') {
-      if (!confirm('⚠️ High-Risk-Aktion: Zusätzliche Bestätigung erforderlich. Wirklich fortsetzen?')) return;
-      payload.extraConfirm = true;
-    }
+    if (action.risk === 'high' && !confirm('⚠️ High-Risk-Aktion. Soll die erste Bestätigung gesendet werden?')) return;
     let result = await adminPost('/admin/ai/action/' + encodeURIComponent(actionId), payload);
     if (result && result.needsExtraConfirmation) {
-      if (!confirm('Diese Aktion benötigt eine zusätzliche Sicherheitsbestätigung. Jetzt bestätigen?')) return;
+      if (!confirm('Zusätzliche Sicherheitsbestätigung erforderlich. Wirklich endgültig ausführen?')) return;
       result = await adminPost('/admin/ai/action/' + encodeURIComponent(actionId), { ...payload, confirm: true, extraConfirm: true });
     }
     if (!result || !result.ok) {
@@ -638,6 +636,7 @@
     }
   }
   document.addEventListener('click', (event) => {
+    if (!adminToken) return;
     const btn = event.target.closest('[data-ai-action][data-ai-id]');
     if (!btn) return;
     const action = btn.dataset.aiAction;

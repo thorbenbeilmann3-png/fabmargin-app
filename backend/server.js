@@ -210,16 +210,16 @@ function detectAdminAiIntents(input) {
   const text = String(input || '').toLowerCase();
   const intents = [];
   const push = name => { if (!intents.includes(name)) intents.push(name); };
-  if (/\bbanner|slot\b/.test(text)) push('banner');
+  if (/\b(banner|slot)\b/.test(text)) push('banner');
   if (/\bpartner\b/.test(text)) push('partner');
-  if (/\bnutzer|user|konto\b/.test(text)) push('nutzer');
-  if (/\bsicherheit|angriff|hack|zugriff\b/.test(text)) push('sicherheit');
-  if (/\bwert|bewertung|valuation\b/.test(text)) push('wert');
-  if (/\bstripe|zahlung|kauf\b/.test(text)) push('stripe');
-  if (/\bproblem|fehler|bug\b/.test(text)) push('problem');
-  if (/\bincident|vorfall|alarm\b/.test(text)) push('incident');
-  if (/\bdsgvo|datenschutz|export\b/.test(text)) push('dsgvo');
-  if (/\bstatus|lage|übersicht\b/.test(text)) push('status');
+  if (/\b(nutzer|user|konto)\b/.test(text)) push('nutzer');
+  if (/\b(sicherheit|angriff|hack|zugriff)\b/.test(text)) push('sicherheit');
+  if (/\b(wert|bewertung|valuation)\b/.test(text)) push('wert');
+  if (/\b(stripe|zahlung|kauf)\b/.test(text)) push('stripe');
+  if (/\b(problem|fehler|bug)\b/.test(text)) push('problem');
+  if (/\b(incident|vorfall|alarm)\b/.test(text)) push('incident');
+  if (/\b(dsgvo|datenschutz|export)\b/.test(text)) push('dsgvo');
+  if (/\b(status|lage|übersicht)\b/.test(text)) push('status');
   if (!intents.length) push('status');
   return intents;
 }
@@ -305,7 +305,7 @@ function buildAdminAiAction(action, detail, extras = {}) {
     id,
     action,
     title: template.title,
-    risk: template.risk,
+    risk: ['low', 'medium', 'high'].includes(template.risk) ? template.risk : 'low',
     detail: String(detail || '').slice(0, 260),
     status: 'pending',
     createdAt: new Date().toISOString(),
@@ -327,7 +327,8 @@ function executeAdminAiAction(proposal, payload = {}) {
       { id: 'slot_middle', position: 'mitte', label: 'Standard', priceRange: '150-300€/Monat', slotNumber: 2 },
       { id: 'slot_bottom', position: 'unten', label: 'Footer', priceRange: '100-200€/Monat', slotNumber: 3 }
     ];
-    state.bannerSlots = defaults.map((slot, idx) => ({ ...slot, ...(state.bannerSlots[idx] || {}) }));
+    const existingSlots = Array.isArray(state.bannerSlots) ? state.bannerSlots : [];
+    state.bannerSlots = defaults.map((slot, idx) => ({ ...(existingSlots[idx] || {}), ...slot }));
     return { message: 'Banner-Slots wurden geprüft und repariert.', changed: state.bannerSlots.length };
   }
   if (action === 'freeze_user') {
@@ -1811,11 +1812,11 @@ const server = http.createServer(async (req, res) => {
         saveState();
         return json(res, 200, { ok: true, status: proposal.status, message: 'Aktion wurde abgebrochen.' }, origin);
       }
-      if (proposal.risk === 'high' && payload.extraConfirm !== true) {
-        return json(res, 409, { ok: false, needsExtraConfirmation: true, error: 'High-Risk-Aktion benötigt zusätzliche Bestätigung.' }, origin);
-      }
       if (payload.confirm !== true) {
         return json(res, 400, { ok: false, error: 'Bestätigung erforderlich (confirm=true).' }, origin);
+      }
+      if (proposal.risk === 'high' && payload.extraConfirm !== true) {
+        return json(res, 409, { ok: false, needsExtraConfirmation: true, error: 'High-Risk-Aktion benötigt zusätzliche Bestätigung.' }, origin);
       }
       try {
         const result = executeAdminAiAction(proposal, payload);
@@ -1836,7 +1837,6 @@ const server = http.createServer(async (req, res) => {
       }
     }
     if (u.pathname === '/admin/ai/alerts' && req.method === 'GET') {
-      runAdminAiMonitor();
       const alerts = (state.adminAi.alerts || []).slice(0, 60);
       const severity = alerts.reduce((acc, alert) => {
         const key = alert.severity === 'critical' ? 'critical' : alert.severity === 'important' ? 'important' : 'info';
@@ -1847,8 +1847,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (u.pathname === '/admin/ai/valuation' && req.method === 'GET') {
       const valuation = calculateAdminAiValuation();
-      state.adminAi.monitor.lastValue = valuation.value;
-      saveState();
       return json(res, 200, { ok: true, valuation, generatedAt: new Date().toISOString() }, origin);
     }
     if (u.pathname === '/admin/ai/audit-log' && req.method === 'GET') {

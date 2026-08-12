@@ -97,6 +97,18 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .printer-config{min-height:220px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:pre}
 .printer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .section-intro{margin:0 0 4px}
+.input-inline{display:flex;gap:8px;align-items:center}
+.input-inline input,.input-inline textarea,.input-inline select{flex:1}
+.icon-btn{padding:12px 14px;border-radius:14px;min-width:48px}
+.chip-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chip{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:#25170f;color:#ffd6b8;font-size:12px;font-weight:700}
+.stat-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+.mini-stat{background:#121212;border:1px solid var(--line);border-radius:16px;padding:12px}
+.mini-stat strong{display:block;font-size:18px}
+.gallery-strip{display:flex;gap:8px;overflow:auto;padding-top:6px}
+.gallery-strip img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+.note-box{background:#111;border:1px dashed #47301f;border-radius:14px;padding:12px}
+.tight-list{display:flex;flex-direction:column;gap:10px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){
   header{padding-top:18px}
@@ -115,6 +127,41 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <h1 style="margin:18px 0 6px;font-size:28px">FabMargin 3D</h1>
     <p class="muted" style="margin:0">Wird gestartet…</p>
     <div class="splash-spinner" aria-hidden="true"></div>
+  </div>
+
+  <div class="card">
+    <h2>🛡️ Operator-Rolle</h2>
+    <p class="muted small">Vorhandene Nutzer als Operator freischalten und Anfragen prüfen.</p>
+    <label>Benutzername (optional)</label>
+    <input id="operatorInviteUsername" placeholder="z. B. support-max">
+    <label>E-Mail (optional)</label>
+    <input id="operatorInviteEmail" type="email" placeholder="support@example.com">
+    <div style="margin-top:10px">
+      <button id="operatorInviteBtn">➕ Operator einladen</button>
+    </div>
+    <div id="operatorInviteStatus" class="small muted" style="margin-top:8px"></div>
+    <div style="margin-top:12px">
+      <button class="ghost tiny" id="adminLoadOperatorRequestsBtn">Anfragen laden</button>
+      <div id="adminOperatorRequestsList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📝 Live-CMS / Inhalte</h2>
+    <p class="muted small">Tipps und Startseiten-Inhalte ohne App-Store-Update anpassen.</p>
+    <label>Hero-Titel</label>
+    <input id="cmsHeroTitleInput" placeholder="Willkommen bei FabMargin 3D">
+    <label>Hero-Text</label>
+    <textarea id="cmsHeroTextInput" style="min-height:90px"></textarea>
+    <label>Premium-Headline</label>
+    <input id="cmsPremiumHeadlineInput" placeholder="💳 Premium-Credits">
+    <label>Premium-Tipps (eine Zeile pro Tipp)</label>
+    <textarea id="cmsPremiumTipsInput" style="min-height:120px"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="ghost tiny" id="adminLoadContentBtn">Inhalte laden</button>
+      <button id="adminSaveContentBtn">💾 Live aktualisieren</button>
+    </div>
+    <div id="adminContentStatus" class="small muted" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -187,6 +234,12 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <h2>👤 Mein Konto</h2>
       <p class="muted small">Angemeldet als: <strong id="userProfileName"></strong></p>
       <p class="muted small" id="userProfileEmail"></p>
+      <div class="chip-list">
+        <span class="chip" id="userRoleChip">Rolle: Gast</span>
+        <span class="chip" id="userPointsChip">0 Punkte</span>
+      </div>
+      <div id="userBadgeList" class="chip-list"></div>
+      <div id="userNotificationList" class="tight-list" style="margin-top:10px"></div>
       <div id="userPurchasedModules" style="margin:8px 0"></div>
       <div class="row" style="margin-top:10px">
         <button class="ghost tiny danger" id="userLogoutBtn">🚪 Abmelden</button>
@@ -194,8 +247,8 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     </div>
 
     <div class="card hero-card">
-      <h2>Willkommen bei FabMargin 3D</h2>
-      <p class="muted">Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.</p>
+      <h2 id="cmsHeroTitle">Willkommen bei FabMargin 3D</h2>
+      <p class="muted" id="cmsHeroText">Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.</p>
     </div>
 
     <div class="card" id="printerCard">
@@ -204,10 +257,79 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     </div>
 
     <div class="card" id="premiumCard">
-      <h2>💳 Premium-Credits</h2>
+      <h2 id="premiumHeadline">💳 Premium-Credits</h2>
       <p class="muted small">Credits werden für Premium-Funktionen verwendet. Sie verfallen nie.</p>
       <div id="creditBalance" style="font-size:22px;font-weight:900;margin:10px 0">Guthaben: <span id="creditBalanceNum">0</span> Credits</div>
+      <div id="cmsPremiumTips" class="tight-list" style="margin-bottom:12px"></div>
       <div id="creditFeatureList"></div>
+    </div>
+
+    <div class="card" id="pointsCard">
+      <h2>🏆 Punkte & Rewards</h2>
+      <p class="muted small">Freigaben, Verkäufe und 5★ Bewertungen bringen dir Creator-Punkte.</p>
+      <div class="stat-grid">
+        <div class="mini-stat"><span class="muted small">Punkte</span><strong id="userPointsValue">0</strong></div>
+        <div class="mini-stat"><span class="muted small">Badge</span><strong id="userTopCreatorStatus">Noch offen</strong></div>
+      </div>
+      <div id="userRedeemList" class="tight-list" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" id="slicerMarketplaceCard">
+      <h2>🧩 Slicer-Profil Marktplatz</h2>
+      <p class="muted small">Freigegebene Profile können mit Credits oder Punkten freigeschaltet und anschließend bewertet werden.</p>
+      <div id="slicerMarketplaceStatus" class="note-box muted small">Bitte zuerst im Kundenbereich anmelden, um Profile zu kaufen oder zu teilen.</div>
+      <div id="slicerMarketplaceList" class="tight-list" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card" id="slicerCreateCard">
+      <h2>➕ Eigenes Slicer-Profil teilen</h2>
+      <p class="muted small">Zur Admin-Freigabe einreichen und +50 Punkte nach Freigabe sammeln.</p>
+      <form id="slicerProfileForm">
+        <div class="row">
+          <div>
+            <label>Name</label>
+            <input id="slicerName" required placeholder="z. B. PLA Speed-Profil">
+          </div>
+          <div>
+            <label>Drucker-Modell</label>
+            <input id="slicerPrinterModel" required placeholder="z. B. Bambu Lab A1">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Slicer</label>
+            <select id="slicerType">
+              <option>Cura</option>
+              <option>PrusaSlicer</option>
+              <option>Bambu Studio</option>
+            </select>
+          </div>
+          <div>
+            <label>Bewertung (1–5 Sterne)</label>
+            <select id="slicerRating">
+              <option value="5">5 Sterne</option>
+              <option value="4">4 Sterne</option>
+              <option value="3">3 Sterne</option>
+              <option value="2">2 Sterne</option>
+              <option value="1">1 Stern</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <input id="slicerLayerHeight" required placeholder="Layer Height, z. B. 0,2 mm">
+          <input id="slicerSpeed" required placeholder="Speed, z. B. 120 mm/s">
+          <input id="slicerTemp" required placeholder="Temp, z. B. 215 °C">
+        </div>
+        <label>Beschreibung</label>
+        <textarea id="slicerDescription" maxlength="1000" style="min-height:100px" placeholder="Für welches Material, welche Ziele und welchen Drucker das Profil optimiert ist."></textarea>
+        <label>Bis zu 3 Bilder</label>
+        <input id="slicerImages" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        <div id="slicerImagePreview" class="gallery-strip"></div>
+        <div class="row" style="margin-top:12px">
+          <button type="submit">📤 Profil freigeben</button>
+        </div>
+        <div id="slicerCreateStatus" class="small muted" style="margin-top:8px"></div>
+      </form>
     </div>
 
     <div class="card">
@@ -430,11 +552,24 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <div id="adminCommList" style="margin-top:10px"></div>
       </div>
 
+      <div class="card">
+        <h2>🧩 Slicer-Freigaben</h2>
+        <p class="muted small">Eingereichte Profile prüfen und freigeben.</p>
+        <button class="ghost tiny" id="adminLoadSlicerBtn">Profile laden</button>
+        <div id="adminSlicerList" style="margin-top:10px"></div>
+      </div>
+
       <!-- Sicherheits-Log -->
       <div class="card">
         <h2>🔒 Sicherheits-Log</h2>
         <button class="ghost tiny" id="adminLoadLogBtn">Log laden</button>
         <div id="adminSecLog" style="margin-top:10px;max-height:300px;overflow-y:auto"></div>
+      </div>
+
+      <div class="card">
+        <h2>🧠 Smart Diagnostics</h2>
+        <button class="ghost tiny" id="adminLoadDiagnosticsBtn">Diagnosen laden</button>
+        <div id="adminDiagnosticsList" style="margin-top:10px"></div>
       </div>
 
       <!-- Master-Passwort ändern -->
@@ -564,7 +699,17 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL" autocomplete="off">
       <label>Benutzername (3–40 Zeichen)</label><input id="uNewUser" autocomplete="username">
       <label>E-Mail-Adresse</label><input id="uEmail" type="email" autocomplete="email">
-      <label>Passwort (mind. 8 Zeichen)</label><input id="uNewPw" type="password" autocomplete="new-password">
+      <label>Passwort (eigenes Passwort oder Generator)</label>
+      <div class="input-inline">
+        <input id="uNewPw" type="password" autocomplete="new-password" placeholder="Mind. 16 Zeichen für stark">
+        <button type="button" class="ghost icon-btn" id="uTogglePwBtn" aria-label="Passwort anzeigen">👁️</button>
+      </div>
+      <div class="pw-strength"><div id="uPwBar"></div></div>
+      <div id="uPwStrengthText" class="small muted" style="margin-top:6px">Stärke: –</div>
+      <div class="row" style="margin-top:8px">
+        <button type="button" class="ghost tiny" id="uGeneratePwBtn">🔐 Starkes Passwort generieren</button>
+        <button type="button" class="ghost tiny" id="uCopyPwBtn">📋 Kopieren</button>
+      </div>
       <div id="uActErr" class="small" style="color:var(--red);margin-top:6px"></div>
       <div class="row" style="margin-top:12px">
         <button id="uActivateBtn">Registrieren &amp; Anmelden</button>
@@ -598,6 +743,25 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <button id="supportSendBtn" style="flex-shrink:0">Senden</button>
       </div>
       <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">printprofit3d_business.stoneware127@passmail.net</a></p>
+    </div>
+
+    <div class="card hidden" id="operatorConsoleCard">
+      <h2>🛟 Operator-Center</h2>
+      <p class="muted small">Operatoren dürfen Support-Nachrichten, Fehler-Logs, Statistiken und Moderation sehen. Kritische Aktionen laufen immer über eine Anfrage an Admins.</p>
+      <div id="operatorStats" class="tight-list"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost tiny" id="operatorRefreshBtn">Operator-Daten laden</button>
+      </div>
+      <div id="operatorSupportList" class="tight-list" style="margin-top:12px"></div>
+      <div id="operatorCommunityList" class="tight-list" style="margin-top:12px"></div>
+      <div id="operatorDiagnosticsList" class="tight-list" style="margin-top:12px"></div>
+      <label style="margin-top:16px">Anfrage an Admins</label>
+      <input id="operatorRequestAction" placeholder="Was möchtest du tun?">
+      <textarea id="operatorRequestReason" style="min-height:90px" placeholder="Begründung"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="operatorRequestBtn">📨 Anfrage senden</button>
+      </div>
+      <div id="operatorRequestStatus" class="small muted" style="margin-top:8px"></div>
     </div>
   </main>
   <nav class="bottom">

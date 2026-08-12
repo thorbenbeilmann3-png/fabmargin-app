@@ -50,6 +50,7 @@
     if (/[^A-Za-z0-9]/.test(pw)) s += 20;
     return Math.min(100, s);
   }
+  window.__fabPwStrength = pwStrength;
 
   function boot() {
     // Backend-URL im Feld vorbelegen
@@ -350,6 +351,7 @@
       ? '<span style="color:var(--red)">⏸ Käufe pausiert' + (d.pauseReason ? ': ' + d.pauseReason : '') + '</span>'
       : '<span style="color:var(--green,#4caf50)">▶ Käufe aktiv</span>';
     $('adminBackend').value = localStorage.getItem('fabmargin_backend_url') || '';
+    if (window.Part7 && typeof window.Part7.refreshAdmin === 'function') window.Part7.refreshAdmin(d);
   }
 
   async function adminLoadCodes() {
@@ -500,6 +502,7 @@
     renderCreditFeatures();
     renderCreditShop('creditShopList');
     renderStore();
+    if (window.Part7 && typeof window.Part7.refreshHome === 'function') window.Part7.refreshHome();
   }
 
   function renderOwned() {
@@ -850,20 +853,26 @@
         document.getElementById('screenUserLogin').classList.add('hidden');
         document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
+        window.Part7&&window.Part7.refreshHome&&window.Part7.refreshHome();
       }catch(e){$('uLoginErr').textContent=e.message;}
     };
     if($('uActivateBtn')) $('uActivateBtn').onclick=async()=>{
       $('uActErr').textContent='';
+      $('uActErr').style.color='var(--red)';
+      const strength = window.__fabPwStrength ? window.__fabPwStrength($('uNewPw').value || '') : 0;
+      if (strength < 40 && !confirm('Das Passwort ist schwach. Trotzdem verwenden?')) return;
       try{await window.UserAuth.register($('uNewUser').value.trim(),$('uEmail').value.trim(),$('uNewPw').value,$('uCode').value.trim());
         document.getElementById('screenUserLogin').classList.add('hidden');
         document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
+        window.Part7&&window.Part7.refreshHome&&window.Part7.refreshHome();
       }catch(e){$('uActErr').textContent=e.message;}
     };
     if($('userLogoutBtn')) $('userLogoutBtn').onclick=async()=>{
       await window.UserAuth.logout();
       const card=document.getElementById('userProfileCard');
       if(card) card.classList.add('hidden');
+      window.Part7&&window.Part7.refreshHome&&window.Part7.refreshHome();
     };
     if($('commBackBtn')) $('commBackBtn').onclick=()=>{
       const homeBtn = document.querySelector('nav.bottom button[data-tab="home"]');
@@ -1019,7 +1028,12 @@
       return;
     }
     try {
-      const r = await fetch(backendUrl + '/support/messages');
+      const adminToken = typeof window.__getAdminToken === 'function' ? window.__getAdminToken() : '';
+      const user = window.UserAuth && window.UserAuth.current ? window.UserAuth.current() : null;
+      const authToken = adminToken || (user && user.token) || '';
+      const r = await fetch(backendUrl + '/support/messages', {
+        headers: authToken ? { Authorization: 'Bearer ' + authToken } : {}
+      });
       const j = await r.json();
       if (!j.messages || !j.messages.length) {
         el.innerHTML = '<p class="muted small">Keine Support-Nachrichten vorhanden.</p>';
@@ -1034,4 +1048,553 @@
   }
 
   window.__renderSupportChat = renderChat;
+})();
+
+// ------- Teil 7: Passwort-Generator, Slicer-Marktplatz, Operator, Diagnostics, CMS -------
+(function(){
+  const USER_KEY = 'fabmargin_user_v1';
+  const DIAG_SENT_KEY = 'fabmargin_diag_sent_v1';
+  const PROFILE_CREDIT_COST = 5;
+  const PROFILE_POINT_COST = 40;
+  const $ = id => document.getElementById(id);
+  let cachedProfile = null;
+  let selectedImages = [];
+  let jsErrorCount = 0;
+
+  function esc(s){
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function backend(){
+    return (localStorage.getItem('fabmargin_backend_url') || '').replace(/\/$/,'');
+  }
+  function currentUser(){
+    try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; }
+  }
+  function saveCurrentUserPatch(patch){
+    const user = currentUser();
+    if (!user) return;
+    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, ...patch }));
+  }
+  function adminToken(){
+    return typeof window.__getAdminToken === 'function' ? window.__getAdminToken() : '';
+  }
+  function userToken(){
+    const user = currentUser();
+    return user && user.token ? user.token : '';
+  }
+  async function api(path, { method = 'GET', body = null, auth = 'none' } = {}) {
+    const base = backend();
+    if (!base) throw new Error('Backend nicht eingestellt');
+    const headers = {};
+    if (body !== null) headers['Content-Type'] = 'application/json';
+    const token = auth === 'admin' ? adminToken() : auth === 'user' ? userToken() : auth === 'adminOrUser' ? (adminToken() || userToken()) : '';
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const response = await fetch(base + path, { method, headers, body: body !== null ? JSON.stringify(body) : null });
+    const json = await response.json();
+    if (!json.ok) throw new Error(json.error || 'Anfrage fehlgeschlagen');
+    return json;
+  }
+  function passwordLabel(score){
+    return score < 40 ? ['schwach', 'var(--red)'] : score < 70 ? ['mittel', 'var(--amber)'] : ['stark', 'var(--green)'];
+  }
+  function secureRandom(max){
+    const array = new Uint32Array(1);
+    window.crypto.getRandomValues(array);
+    return array[0] % max;
+  }
+  function generatePassword(length = 18){
+    const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%^&*()-_=+[]{}:,.?'];
+    const all = sets.join('');
+    const chars = sets.map(set => set[secureRandom(set.length)]);
+    while (chars.length < length) chars.push(all[secureRandom(all.length)]);
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = secureRandom(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+    return chars.join('');
+  }
+  function updateRegisterPasswordUI() {
+    const input = $('uNewPw');
+    const bar = $('uPwBar');
+    const text = $('uPwStrengthText');
+    if (!input || !bar || !text) return;
+    const score = window.__fabPwStrength ? window.__fabPwStrength(input.value || '') : 0;
+    const [label, color] = passwordLabel(score);
+    bar.style.width = score + '%';
+    bar.style.background = color;
+    text.textContent = 'Stärke: ' + (input.value ? label : '–');
+    text.style.color = input.value ? color : 'var(--muted)';
+  }
+  async function copyToClipboard(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+  }
+  function bindPasswordGenerator() {
+    if ($('uNewPw')) $('uNewPw').addEventListener('input', updateRegisterPasswordUI);
+    if ($('uGeneratePwBtn')) $('uGeneratePwBtn').addEventListener('click', async () => {
+      const pw = generatePassword(18);
+      $('uNewPw').value = pw;
+      updateRegisterPasswordUI();
+      try { await copyToClipboard(pw); } catch {}
+      $('uActErr').style.color = 'var(--green)';
+      $('uActErr').textContent = 'Starkes Passwort erzeugt und in die Zwischenablage kopiert.';
+    });
+    if ($('uCopyPwBtn')) $('uCopyPwBtn').addEventListener('click', async () => {
+      try {
+        await copyToClipboard(($('uNewPw').value || '').trim());
+        $('uActErr').style.color = 'var(--green)';
+        $('uActErr').textContent = 'Passwort kopiert.';
+      } catch (e) {
+        $('uActErr').style.color = 'var(--red)';
+        $('uActErr').textContent = 'Kopieren fehlgeschlagen: ' + e.message;
+      }
+    });
+    if ($('uTogglePwBtn')) $('uTogglePwBtn').addEventListener('click', () => {
+      const input = $('uNewPw');
+      if (!input) return;
+      input.type = input.type === 'password' ? 'text' : 'password';
+      $('uTogglePwBtn').textContent = input.type === 'password' ? '👁️' : '🙈';
+    });
+    updateRegisterPasswordUI();
+  }
+  async function fileToDataUrl(file){
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('Bild konnte nicht gelesen werden'));
+      reader.readAsDataURL(file);
+    });
+  }
+  async function handleImageSelection(){
+    const input = $('slicerImages');
+    const preview = $('slicerImagePreview');
+    if (!input || !preview) return;
+    const files = Array.from(input.files || []).slice(0, 3);
+    selectedImages = await Promise.all(files.map(fileToDataUrl));
+    preview.innerHTML = selectedImages.map(src => `<img src="${src}" alt="Vorschau">`).join('');
+  }
+  async function loadCmsContent(){
+    try {
+      const data = await api('/content/live');
+      const content = data.content || {};
+      if ($('cmsHeroTitle')) $('cmsHeroTitle').textContent = content.heroTitle || 'Willkommen bei FabMargin 3D';
+      if ($('cmsHeroText')) $('cmsHeroText').textContent = content.heroText || '';
+      if ($('premiumHeadline')) $('premiumHeadline').textContent = content.premiumHeadline || '💳 Premium-Credits';
+      if ($('cmsPremiumTips')) {
+        const tips = Array.isArray(content.premiumTips) ? content.premiumTips : [];
+        $('cmsPremiumTips').innerHTML = tips.map(t => `<div class="note-box small">${esc(t)}</div>`).join('');
+      }
+    } catch {}
+  }
+  async function loadProfileData(){
+    if (!userToken()) {
+      cachedProfile = null;
+      renderProfileDetails();
+      return null;
+    }
+    try {
+      const data = await api('/auth/profile', { auth: 'user' });
+      cachedProfile = data;
+      saveCurrentUserPatch({ username: data.username, email: data.email, role: data.role, points: data.points });
+      renderProfileDetails();
+      return data;
+    } catch {
+      cachedProfile = null;
+      renderProfileDetails();
+      return null;
+    }
+  }
+  function renderProfileDetails(){
+    const profile = cachedProfile;
+    const localUser = currentUser();
+    if ($('userProfileCard')) $('userProfileCard').classList.toggle('hidden', !localUser);
+    if ($('userProfileName')) $('userProfileName').textContent = profile?.username || localUser?.username || '';
+    if ($('userProfileEmail')) $('userProfileEmail').textContent = profile?.email || localUser?.email || '';
+    if ($('userRoleChip')) $('userRoleChip').textContent = 'Rolle: ' + (profile?.role || 'Gast');
+    if ($('userPointsChip')) $('userPointsChip').textContent = (profile?.points || 0) + ' Punkte';
+    if ($('userPointsValue')) $('userPointsValue').textContent = String(profile?.points || 0);
+    if ($('userTopCreatorStatus')) $('userTopCreatorStatus').textContent = (profile?.badges || []).includes('Top Creator') ? 'Aktiv' : 'Noch offen';
+    if ($('userBadgeList')) $('userBadgeList').innerHTML = (profile?.badges || []).map(b => `<span class="chip">🏅 ${esc(b)}</span>`).join('');
+    if ($('userNotificationList')) {
+      const notes = (profile?.notifications || []).slice(0, 3);
+      $('userNotificationList').innerHTML = notes.length ? notes.map(note =>
+        `<div class="note-box small">${esc(note.message)}</div>`
+      ).join('') : '';
+    }
+    if ($('operatorConsoleCard')) $('operatorConsoleCard').classList.toggle('hidden', profile?.role !== 'operator');
+    if ($('slicerMarketplaceStatus')) {
+      $('slicerMarketplaceStatus').textContent = profile?.username
+        ? `Angemeldet als ${profile.username}. Profilkäufe kosten ${PROFILE_CREDIT_COST} Credits oder ${PROFILE_POINT_COST} Punkte.`
+        : 'Bitte zuerst im Kundenbereich anmelden, um Profile zu kaufen oder zu teilen.';
+    }
+  }
+  async function loadPoints(){
+    if (!userToken()) {
+      if ($('userRedeemList')) $('userRedeemList').innerHTML = '<div class="muted small">Im Kundenbereich anmelden, um Punkte einzulösen.</div>';
+      return;
+    }
+    try {
+      const data = await api('/user/points', { auth: 'user' });
+      if ($('userPointsValue')) $('userPointsValue').textContent = String(data.points || 0);
+      if ($('userRedeemList')) {
+        $('userRedeemList').innerHTML = (data.redeemOptions || []).map(item => `
+          <div class="feature-tile">
+            <div class="icon">🎁</div>
+            <div class="body"><h3>${esc(item.title)}</h3><p>${item.cost} Punkte</p></div>
+            <div style="text-align:right">
+              <button class="tiny" ${item.unlocked ? 'disabled' : ''} data-reward="${esc(item.id)}">${item.unlocked ? '✓ Aktiv' : 'Einlösen'}</button>
+            </div>
+          </div>`).join('');
+        $('userRedeemList').querySelectorAll('button[data-reward]').forEach(btn => {
+          btn.onclick = async () => {
+            try {
+              await api('/user/points/redeem', { method: 'POST', auth: 'user', body: { rewardId: btn.dataset.reward } });
+              await loadProfileData();
+              await loadPoints();
+            } catch (e) { alert('❌ ' + e.message); }
+          };
+        });
+      }
+    } catch (e) {
+      if ($('userRedeemList')) $('userRedeemList').innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function loadMarketplace(){
+    const box = $('slicerMarketplaceList');
+    if (!box) return;
+    try {
+      const data = await api('/slicer/profiles');
+      if (!data.profiles.length) {
+        box.innerHTML = '<div class="muted small">Noch keine freigegebenen Slicer-Profile im Marktplatz.</div>';
+        return;
+      }
+      box.innerHTML = data.profiles.map(profile => `
+        <div class="feature-tile">
+          <div class="icon">🧩</div>
+          <div class="body">
+            <h3>${esc(profile.name)}</h3>
+            <p>${esc(profile.printerModel)} · ${esc(profile.slicer)} · ⭐ ${esc(profile.rating || 0)}</p>
+            <p class="small muted">${esc(profile.description)}</p>
+            <div class="chip-list">
+              <span class="chip">Layer ${esc(profile.settings?.layerHeight)}</span>
+              <span class="chip">Speed ${esc(profile.settings?.speed)}</span>
+              <span class="chip">Temp ${esc(profile.settings?.temp)}</span>
+              ${(profile.badges || []).map(b => `<span class="chip">🏅 ${esc(b)}</span>`).join('')}
+            </div>
+            ${(profile.images || []).length ? `<div class="gallery-strip">${profile.images.map(src => `<img src="${src}" alt="Bild">`).join('')}</div>` : ''}
+          </div>
+          <div style="text-align:right;min-width:120px">
+            <div class="price">${profile.purchaseCount || 0} Käufe</div>
+            <button class="tiny" data-buy-credits="${profile.id}" style="margin-top:6px">Mit Credits</button>
+            <button class="ghost tiny" data-buy-points="${profile.id}" style="margin-top:6px">Mit Punkten</button>
+            <button class="ghost tiny" data-rate="${profile.id}" style="margin-top:6px">Bewerten</button>
+          </div>
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-buy-credits]').forEach(btn => btn.onclick = () => buyProfile(btn.dataset.buyCredits, 'credits'));
+      box.querySelectorAll('button[data-buy-points]').forEach(btn => btn.onclick = () => buyProfile(btn.dataset.buyPoints, 'points'));
+      box.querySelectorAll('button[data-rate]').forEach(btn => btn.onclick = () => rateProfile(btn.dataset.rate));
+    } catch (e) {
+      box.innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function buyProfile(profileId, method){
+    if (!userToken()) return alert('Bitte zuerst im Kundenbereich anmelden.');
+    let creditsReserved = false;
+    try {
+      if (method === 'credits') {
+        creditsReserved = !!(window.CreditManager && window.CreditManager.reserveCredits(PROFILE_CREDIT_COST));
+        if (!creditsReserved) return alert('Nicht genug Credits. Bitte zuerst Guthaben aufladen.');
+      }
+      await api(`/slicer/profile/${profileId}/buy`, { method: 'POST', auth: 'user', body: { method } });
+      alert('✅ Profil erfolgreich freigeschaltet.');
+      await loadProfileData();
+      await loadPoints();
+      await loadMarketplace();
+    } catch (e) {
+      if (creditsReserved && window.CreditManager) window.CreditManager.refundCredits(PROFILE_CREDIT_COST);
+      alert('❌ ' + e.message);
+    }
+  }
+  async function rateProfile(profileId){
+    if (!userToken()) return alert('Bitte zuerst im Kundenbereich anmelden.');
+    const raw = prompt('Bewertung von 1 bis 5 Sternen eingeben:', '5');
+    if (!raw) return;
+    const rating = Math.max(1, Math.min(5, Number(raw || 0)));
+    try {
+      await api(`/slicer/profile/${profileId}/rate`, { method: 'POST', auth: 'user', body: { rating } });
+      alert('✅ Bewertung gespeichert.');
+      await loadMarketplace();
+      await loadPoints();
+    } catch (e) { alert('❌ ' + e.message); }
+  }
+  async function submitSlicerProfile(event){
+    event.preventDefault();
+    const status = $('slicerCreateStatus');
+    if (!userToken()) {
+      status.textContent = 'Bitte zuerst im Kundenbereich anmelden.';
+      status.style.color = 'var(--red)';
+      return;
+    }
+    status.textContent = 'Sende Profil…';
+    status.style.color = 'var(--muted)';
+    try {
+      await api('/slicer/profile', {
+        method: 'POST',
+        auth: 'user',
+        body: {
+          name: $('slicerName').value.trim(),
+          printerModel: $('slicerPrinterModel').value.trim(),
+          slicer: $('slicerType').value,
+          settings: {
+            layerHeight: $('slicerLayerHeight').value.trim(),
+            speed: $('slicerSpeed').value.trim(),
+            temp: $('slicerTemp').value.trim()
+          },
+          rating: Number($('slicerRating').value || 5),
+          images: selectedImages,
+          description: $('slicerDescription').value.trim()
+        }
+      });
+      event.target.reset();
+      selectedImages = [];
+      if ($('slicerImagePreview')) $('slicerImagePreview').innerHTML = '';
+      status.textContent = '✅ Profil eingereicht. Es wartet jetzt auf Admin-Freigabe.';
+      status.style.color = 'var(--green)';
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
+    }
+  }
+  async function loadAdminSlicer(){
+    const box = $('adminSlicerList');
+    if (!box) return;
+    try {
+      const data = await api('/admin/slicer/pending', { auth: 'admin' });
+      box.innerHTML = !data.profiles.length ? '<p class="muted small">Keine offenen Freigaben.</p>' : data.profiles.map(profile => `
+        <div class="step">
+          <strong>${esc(profile.name)}</strong> · ${esc(profile.printerModel)} · ${esc(profile.slicer)}<br>
+          <span class="small muted">${esc(profile.description)}</span>
+          <div class="chip-list">
+            <span class="chip">Layer ${esc(profile.settings?.layerHeight)}</span>
+            <span class="chip">Speed ${esc(profile.settings?.speed)}</span>
+            <span class="chip">Temp ${esc(profile.settings?.temp)}</span>
+          </div>
+          <div style="margin-top:8px"><button class="tiny" data-approve-slicer="${profile.id}">Freigeben</button></div>
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-approve-slicer]').forEach(btn => btn.onclick = async () => {
+        await api('/admin/slicer/approve/' + btn.dataset.approveSlicer, { method: 'POST', auth: 'admin', body: {} });
+        await loadAdminSlicer();
+      });
+    } catch (e) {
+      box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+    }
+  }
+  async function loadDiagnostics(targetId = 'adminDiagnosticsList', auth = 'admin'){
+    const box = $(targetId);
+    if (!box) return;
+    try {
+      const data = await api('/admin/diagnostics', { auth });
+      box.innerHTML = !data.reports.length ? '<p class="muted small">Noch keine Diagnosen.</p>' : data.reports.slice(0, 12).map(report => `
+        <div class="step">
+          <strong>${esc(report.username)}</strong> · ${esc(report.createdAt ? new Date(report.createdAt).toLocaleString('de-DE') : '')}<br>
+          <span class="small muted">DevTools: ${report.devtoolsDetected ? 'ja' : 'nein'} · Fehler: ${esc(report.errorCount)}</span><br>
+          <span class="small">${esc((report.flags || []).join(', ') || 'Keine Flags')}</span>
+        </div>
+      `).join('');
+    } catch (e) {
+      box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+    }
+  }
+  async function loadOperatorRequests(){
+    const box = $('adminOperatorRequestsList');
+    if (!box) return;
+    try {
+      const data = await api('/admin/operator/requests', { auth: 'admin' });
+      box.innerHTML = !data.requests.length ? '<p class="muted small">Keine Operator-Anfragen.</p>' : data.requests.map(item => `
+        <div class="step">
+          <strong>${esc(item.operator)}</strong> möchte: ${esc(item.action)}<br>
+          <span class="small muted">${esc(item.reason)}</span><br>
+          <span class="small">${esc(item.status)}</span>
+          ${item.status === 'pending' ? `<div class="row" style="margin-top:8px">
+            <button class="tiny" data-op-approve="${item.id}">Genehmigen</button>
+            <button class="danger tiny" data-op-reject="${item.id}">Ablehnen</button>
+          </div>` : ''}
+        </div>
+      `).join('');
+      box.querySelectorAll('button[data-op-approve]').forEach(btn => btn.onclick = async () => {
+        await api('/admin/operator/requests/' + btn.dataset.opApprove + '/approve', { method: 'POST', auth: 'admin', body: {} });
+        await loadOperatorRequests();
+      });
+      box.querySelectorAll('button[data-op-reject]').forEach(btn => btn.onclick = async () => {
+        await api('/admin/operator/requests/' + btn.dataset.opReject + '/reject', { method: 'POST', auth: 'admin', body: {} });
+        await loadOperatorRequests();
+      });
+    } catch (e) {
+      box.innerHTML = `<p class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</p>`;
+    }
+  }
+  async function inviteOperator(){
+    const status = $('operatorInviteStatus');
+    try {
+      await api('/admin/operator/invite', {
+        method: 'POST',
+        auth: 'admin',
+        body: {
+          username: $('operatorInviteUsername').value.trim(),
+          email: $('operatorInviteEmail').value.trim()
+        }
+      });
+      $('operatorInviteUsername').value = '';
+      $('operatorInviteEmail').value = '';
+      status.textContent = '✅ Operator-Einladung gespeichert.';
+      status.style.color = 'var(--green)';
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
+    }
+  }
+  async function loadCmsAdmin(){
+    try {
+      const data = await api('/admin/content', { auth: 'admin' });
+      const content = data.content || {};
+      if ($('cmsHeroTitleInput')) $('cmsHeroTitleInput').value = content.heroTitle || '';
+      if ($('cmsHeroTextInput')) $('cmsHeroTextInput').value = content.heroText || '';
+      if ($('cmsPremiumHeadlineInput')) $('cmsPremiumHeadlineInput').value = content.premiumHeadline || '';
+      if ($('cmsPremiumTipsInput')) $('cmsPremiumTipsInput').value = (content.premiumTips || []).join('\n');
+      $('adminContentStatus').textContent = 'Inhalte geladen.';
+    } catch (e) {
+      $('adminContentStatus').textContent = '❌ ' + e.message;
+      $('adminContentStatus').style.color = 'var(--red)';
+    }
+  }
+  async function saveCmsAdmin(){
+    try {
+      await api('/admin/content/update', {
+        method: 'POST',
+        auth: 'admin',
+        body: {
+          heroTitle: $('cmsHeroTitleInput').value.trim(),
+          heroText: $('cmsHeroTextInput').value.trim(),
+          premiumHeadline: $('cmsPremiumHeadlineInput').value.trim(),
+          premiumTips: $('cmsPremiumTipsInput').value.split('\n').map(x => x.trim()).filter(Boolean)
+        }
+      });
+      $('adminContentStatus').textContent = '✅ Inhalte live aktualisiert.';
+      $('adminContentStatus').style.color = 'var(--green)';
+      await loadCmsContent();
+    } catch (e) {
+      $('adminContentStatus').textContent = '❌ ' + e.message;
+      $('adminContentStatus').style.color = 'var(--red)';
+    }
+  }
+  async function refreshOperatorConsole(){
+    const profile = cachedProfile;
+    if (!profile || profile.role !== 'operator') return;
+    try {
+      const [stats, messages, community] = await Promise.all([
+        api('/admin/dashboard', { auth: 'user' }),
+        api('/support/messages', { auth: 'user' }),
+        api('/admin/community', { auth: 'user' })
+      ]);
+      if ($('operatorStats')) $('operatorStats').innerHTML = `
+        <div class="note-box small">📊 Nutzer: ${esc(stats.users)} · Freie Codes: ${esc(stats.unusedCodes)} · Offene Slicer-Freigaben: ${esc(stats.slicerPending || 0)}</div>
+        <div class="note-box small">🔒 Incidents: ${esc(stats.incidents)} · Diagnosen: ${esc(stats.diagnostics || 0)}</div>`;
+      if ($('operatorSupportList')) $('operatorSupportList').innerHTML = (messages.messages || []).slice(0, 5).map(msg =>
+        `<div class="note-box small">🎧 ${esc(msg.text)}<br><span class="muted">${esc(new Date(msg.ts).toLocaleString('de-DE'))}</span></div>`
+      ).join('') || '<div class="muted small">Keine Support-Nachrichten.</div>';
+      if ($('operatorCommunityList')) {
+        const pending = (community.proposals || []).filter(item => item.status === 'pending').slice(0, 5);
+        $('operatorCommunityList').innerHTML = pending.length ? pending.map(item => `
+          <div class="step">
+            <strong>💡 ${esc(item.title)}</strong><br>
+            <span class="small muted">${esc(item.text)}</span>
+            <div class="row" style="margin-top:8px">
+              <button class="tiny" data-op-comm-approve="${item.id}">Annehmen</button>
+              <button class="danger tiny" data-op-comm-reject="${item.id}">Ablehnen</button>
+            </div>
+          </div>
+        `).join('') : '<div class="muted small">Keine offenen Community-Fälle.</div>';
+        $('operatorCommunityList').querySelectorAll('button[data-op-comm-approve]').forEach(btn => btn.onclick = async () => {
+          await api('/admin/community/' + btn.dataset.opCommApprove + '/approve', { method: 'POST', auth: 'user', body: {} });
+          await refreshOperatorConsole();
+        });
+        $('operatorCommunityList').querySelectorAll('button[data-op-comm-reject]').forEach(btn => btn.onclick = async () => {
+          await api('/admin/community/' + btn.dataset.opCommReject + '/reject', { method: 'POST', auth: 'user', body: {} });
+          await refreshOperatorConsole();
+        });
+      }
+      await loadDiagnostics('operatorDiagnosticsList', 'user');
+    } catch (e) {
+      if ($('operatorStats')) $('operatorStats').innerHTML = `<div class="small" style="color:var(--red)">Fehler: ${esc(e.message)}</div>`;
+    }
+  }
+  async function sendOperatorRequest(){
+    const status = $('operatorRequestStatus');
+    try {
+      await api('/operator/request', {
+        method: 'POST',
+        auth: 'user',
+        body: {
+          action: $('operatorRequestAction').value.trim(),
+          reason: $('operatorRequestReason').value.trim()
+        }
+      });
+      $('operatorRequestAction').value = '';
+      $('operatorRequestReason').value = '';
+      status.textContent = '✅ Anfrage an Admins gesendet.';
+      status.style.color = 'var(--green)';
+    } catch (e) {
+      status.textContent = '❌ ' + e.message;
+      status.style.color = 'var(--red)';
+    }
+  }
+  function devtoolsDetected(){
+    return Math.abs((window.outerWidth || 0) - window.innerWidth) > 160 || Math.abs((window.outerHeight || 0) - window.innerHeight) > 160;
+  }
+  async function maybeSendDiagnostics(reason){
+    if (!backend() || sessionStorage.getItem(DIAG_SENT_KEY)) return;
+    const flags = [];
+    if (devtoolsDetected()) flags.push('devtools');
+    if (jsErrorCount >= 3) flags.push('many_errors');
+    if (!flags.length) return;
+    try {
+      await api('/diagnostics/report', {
+        method: 'POST',
+        body: { devtoolsDetected: devtoolsDetected(), errorCount: jsErrorCount, flags: [...flags, reason], userAgent: navigator.userAgent },
+        auth: 'user'
+      });
+      sessionStorage.setItem(DIAG_SENT_KEY, '1');
+    } catch {}
+  }
+  async function refreshHome(){
+    await loadCmsContent();
+    await loadProfileData();
+    await loadPoints();
+    await loadMarketplace();
+    await refreshOperatorConsole();
+  }
+  function refreshAdmin(data){
+    if ($('statComm') && typeof data.slicerPending !== 'undefined') {
+      $('adminPauseErr').textContent = `Offene Slicer-Freigaben: ${data.slicerPending || 0} · Diagnosen: ${data.diagnostics || 0}`;
+    }
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    bindPasswordGenerator();
+    if ($('slicerImages')) $('slicerImages').addEventListener('change', () => { handleImageSelection().catch(() => {}); });
+    if ($('slicerProfileForm')) $('slicerProfileForm').addEventListener('submit', submitSlicerProfile);
+    if ($('adminLoadSlicerBtn')) $('adminLoadSlicerBtn').addEventListener('click', () => { loadAdminSlicer().catch(() => {}); });
+    if ($('adminLoadDiagnosticsBtn')) $('adminLoadDiagnosticsBtn').addEventListener('click', () => { loadDiagnostics().catch(() => {}); });
+    if ($('operatorInviteBtn')) $('operatorInviteBtn').addEventListener('click', () => { inviteOperator().catch(() => {}); });
+    if ($('adminLoadOperatorRequestsBtn')) $('adminLoadOperatorRequestsBtn').addEventListener('click', () => { loadOperatorRequests().catch(() => {}); });
+    if ($('adminLoadContentBtn')) $('adminLoadContentBtn').addEventListener('click', () => { loadCmsAdmin().catch(() => {}); });
+    if ($('adminSaveContentBtn')) $('adminSaveContentBtn').addEventListener('click', () => { saveCmsAdmin().catch(() => {}); });
+    if ($('operatorRefreshBtn')) $('operatorRefreshBtn').addEventListener('click', () => { refreshOperatorConsole().catch(() => {}); });
+    if ($('operatorRequestBtn')) $('operatorRequestBtn').addEventListener('click', () => { sendOperatorRequest().catch(() => {}); });
+    window.addEventListener('error', () => { jsErrorCount++; maybeSendDiagnostics('window.error'); });
+    window.addEventListener('unhandledrejection', () => { jsErrorCount++; maybeSendDiagnostics('unhandledrejection'); });
+    setInterval(() => { maybeSendDiagnostics('interval'); }, 15000);
+  });
+  window.Part7 = { refreshHome, refreshAdmin };
 })();

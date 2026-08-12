@@ -119,6 +119,7 @@
         else if (tab === 'admin') show('screenAdmin');
         else if (tab === 'chat') {
           if (window.__renderComm) window.__renderComm();
+          if (window.__renderSupportChat) window.__renderSupportChat();
           show('screenCommunity');
         }
       });
@@ -464,4 +465,146 @@
     }catch(e){el.innerHTML='<p class="small" style="color:var(--red)">Fehler: '+e.message+'</p>';}
   }
   window.__renderComm=renderComm;
+})();
+
+// ------- Support-Chat -------
+(function(){
+  const STORAGE_KEY = 'fabmargin_support_chat';
+  const BOT_NAME = 'Support-Bot';
+  const CONTACT_EMAIL = 'printprofit3d_business.stoneware127@passmail.net';
+
+  function loadMessages() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e) { return []; }
+  }
+
+  function saveMessages(msgs) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function getBotResponse(text) {
+    const t = text.toLowerCase();
+    if (t.includes('drucker') || t.includes('profil') || t.includes('printer')) {
+      return '🖨️ Fragen zu Drucker-Profilen? Schau im Drucker-Tab – dort findest du alle 25 Profile und kannst eigene anpassen!';
+    }
+    if (t.includes('credit') || t.includes('premium') || t.includes('guthaben') || t.includes('abo')) {
+      return '⭐ Credits & Premium: Im Premium-Tab kannst du Credits kaufen und Premium-Funktionen freischalten. Credits werden pro Nutzung abgezogen.';
+    }
+    if (t.includes('kauf') || t.includes('bezahl') || t.includes('preis') || t.includes('kosten') || t.includes('zahlung')) {
+      return '💳 Käufe & Bezahlung: Alle Käufe laufen sicher über unsere App. Bei Fragen oder Problemen schreib uns direkt an: ' + CONTACT_EMAIL;
+    }
+    return '👋 Danke für deine Nachricht! Unser Team meldet sich bald. Bei dringenden Fragen erreichst du uns unter: ' + CONTACT_EMAIL;
+  }
+
+  function renderChat() {
+    const el = document.getElementById('supportMessages');
+    if (!el) return;
+    const msgs = loadMessages();
+    if (!msgs.length) {
+      el.innerHTML = '<p class="muted small" style="text-align:center;padding:16px 0">Noch keine Nachrichten. Schreib uns – wir helfen gerne! 👋</p>';
+      return;
+    }
+    el.innerHTML = msgs.map(m => {
+      const isUser = m.role === 'user';
+      return `<div style="display:flex;flex-direction:column;align-items:${isUser ? 'flex-end' : 'flex-start'}">
+        <div style="max-width:80%;background:${isUser ? 'var(--accent,#2563eb)' : 'var(--panel,#1a1f2e)'};color:${isUser ? '#fff' : 'inherit'};border-radius:${isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};padding:8px 12px;font-size:14px">${escapeHtml(m.text)}</div>
+        <span class="small muted" style="font-size:11px;margin:2px 4px">${isUser ? 'Du' : BOT_NAME} · ${formatTime(m.ts)}</span>
+      </div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function sendMessage(text) {
+    const msgs = loadMessages();
+    const ts = new Date().toISOString();
+    msgs.push({ role: 'user', text, ts });
+    saveMessages(msgs);
+    renderChat();
+
+    // Versuche Backend
+    const backendUrl = localStorage.getItem('fabmargin_backend_url') || '';
+    if (backendUrl) {
+      try {
+        await fetch(backendUrl + '/support/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, ts })
+        });
+      } catch(e) { /* ignorieren – lokal gespeichert */ }
+    }
+
+    // Bot-Antwort
+    setTimeout(() => {
+      const msgs2 = loadMessages();
+      msgs2.push({ role: 'bot', text: getBotResponse(text), ts: new Date().toISOString() });
+      saveMessages(msgs2);
+      renderChat();
+    }, 600);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const sendBtn = document.getElementById('supportSendBtn');
+    const input = document.getElementById('supportInput');
+    const clearBtn = document.getElementById('supportClearBtn');
+    const adminRefreshBtn = document.getElementById('adminSupportRefreshBtn');
+
+    if (sendBtn && input) {
+      const doSend = () => {
+        const t = input.value.trim();
+        if (!t) return;
+        input.value = '';
+        sendMessage(t);
+      };
+      sendBtn.onclick = doSend;
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+    }
+
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        if (confirm('Chat-Verlauf löschen?')) {
+          localStorage.removeItem(STORAGE_KEY);
+          renderChat();
+        }
+      };
+    }
+
+    if (adminRefreshBtn) {
+      adminRefreshBtn.onclick = loadAdminSupportMessages;
+    }
+
+    renderChat();
+  });
+
+  async function loadAdminSupportMessages() {
+    const el = document.getElementById('adminSupportList');
+    if (!el) return;
+    const backendUrl = localStorage.getItem('fabmargin_backend_url') || '';
+    if (!backendUrl) {
+      el.innerHTML = '<p class="muted small">Kein Backend eingestellt.</p>';
+      return;
+    }
+    try {
+      const r = await fetch(backendUrl + '/support/messages');
+      const j = await r.json();
+      if (!j.messages || !j.messages.length) {
+        el.innerHTML = '<p class="muted small">Keine Support-Nachrichten vorhanden.</p>';
+        return;
+      }
+      el.innerHTML = j.messages.map(m =>
+        `<div class="step" style="margin-bottom:6px"><span class="small muted">${new Date(m.ts).toLocaleString('de-DE')}</span><br>${escapeHtml(m.text)}</div>`
+      ).join('');
+    } catch(e) {
+      el.innerHTML = '<p class="small" style="color:var(--red)">Fehler: ' + escapeHtml(e.message) + '</p>';
+    }
+  }
+
+  window.__renderSupportChat = renderChat;
 })();

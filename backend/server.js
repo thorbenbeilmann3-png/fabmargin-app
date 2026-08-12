@@ -49,6 +49,7 @@ let state = loadState();
 function saveState() { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, DATA_FILE); }
 if (!fs.existsSync(DATA_FILE)) saveState();
 if (!state.purchases) { state.purchases = {}; saveState(); }
+if (!state.supportMessages) { state.supportMessages = []; saveState(); }
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -158,6 +159,23 @@ const server = http.createServer(async (req, res) => {
       }
       state.security.failedLogins = 0; saveState();
       return json(res, 200, { ok: true, token: createSession(), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
+    }
+
+    // Support-Chat: Nachricht speichern
+    if (u.pathname === '/support/message' && req.method === 'POST') {
+      if (!rateOk('support:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      if (!b.text || typeof b.text !== 'string' || !b.text.trim()) return json(res, 400, { ok: false, error: 'text erforderlich' }, origin);
+      if (!state.supportMessages) state.supportMessages = [];
+      state.supportMessages.unshift({ id: crypto.randomUUID(), text: b.text.trim().slice(0, 500), ts: b.ts || new Date().toISOString(), ip });
+      state.supportMessages = state.supportMessages.slice(0, 500);
+      saveState();
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Support-Chat: Nachrichten abrufen (Admin)
+    if (u.pathname === '/support/messages' && req.method === 'GET') {
+      return json(res, 200, { ok: true, messages: state.supportMessages || [] }, origin);
     }
 
     // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)

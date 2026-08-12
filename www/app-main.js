@@ -1,13 +1,12 @@
 // FabMargin 3D – Haupt-App-Logik
 (function () {
   const $ = (id) => document.getElementById(id);
-  const SCREEN_IDS = ['screenSetup','screenLogin','screenHome','screenFeature','screenAdmin','screenUserLogin','screenCommunity','screenLegal'];
+  const SCREEN_IDS = ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenUserLogin','screenCommunity','screenLegal','screenBeta'];
   const DISCLAIMER_KEY = 'fabmargin_disclaimer_v1';
   const SPLASH_DELAY_MS = 900;
   let lastMainScreen = 'screenHome';
   const show = (id) => {
-    SCREEN_IDS
-      .forEach(s => $(s).classList.toggle('hidden', s !== id));
+    SCREEN_IDS.forEach(s => $(s).classList.toggle('hidden', s !== id));
     if (['screenHome', 'screenAdmin', 'screenCommunity'].includes(id)) lastMainScreen = id;
     window.scrollTo(0,0);
   };
@@ -39,6 +38,7 @@
 
   let logoTapCount = 0;
   let logoTapTimer = null;
+  let adminToken = null; // JWT-Session-Token nach Admin-Login
 
   function pwStrength(pw) {
     let s = 0;
@@ -106,15 +106,17 @@
       }
     });
 
-    // Logo-Tap für Admin
+    // Logo-Tap für Admin (7× öffnet Admin-Bildschirm auch ohne Login)
     $('logoTap').addEventListener('click', () => {
       logoTapCount++;
       clearTimeout(logoTapTimer);
       logoTapTimer = setTimeout(() => { logoTapCount = 0; }, 2000);
       if (logoTapCount >= 7) {
         logoTapCount = 0;
-        if (window.FabVault.isUnlocked()) { setActiveTab('admin'); show('screenAdmin'); }
-        else alert('Bitte zuerst die App entsperren.');
+        if (window.FabVault.isUnlocked()) {
+          setActiveTab('admin');
+          showAdminScreen();
+        } else alert('Bitte zuerst die App entsperren.');
       }
     });
 
@@ -123,11 +125,31 @@
       b.addEventListener('click', () => {
         const tab = b.dataset.tab;
         setActiveTab(tab);
-        if (tab === 'home') { renderHome(); show('screenHome'); }
-        else if (tab === 'printers') { renderHome(); show('screenHome'); scrollToBlock('printerCard'); }
-        else if (tab === 'premium') { renderHome(); show('screenHome'); scrollToBlock('premiumCard'); }
-        else if (tab === 'admin') show('screenAdmin');
-        else if (tab === 'chat') { show('screenCommunity'); window.__renderComm && window.__renderComm(); }
+        if (tab === 'home') {
+          renderHome();
+          show('screenHome');
+        }
+        else if (tab === 'printers') {
+          show('screenPrinters');
+          if (window.PrinterProfiles) window.PrinterProfiles.render();
+          else {
+            const list = document.getElementById('printerProfileList');
+            if (list) {
+              list.innerHTML = '<div class="card"><p class="muted">Die Drucker-Profile konnten gerade nicht geladen werden. Bitte App neu starten.</p></div>';
+            }
+          }
+        }
+        else if (tab === 'premium') {
+          renderHome();
+          show('screenHome');
+          scrollToBlock('premiumCard');
+        }
+        else if (tab === 'admin') showAdminScreen();
+        else if (tab === 'chat') {
+          show('screenCommunity');
+          if (window.__renderComm) window.__renderComm();
+          if (window.__renderSupportChat) window.__renderSupportChat();
+        }
       });
     });
 
@@ -139,6 +161,50 @@
     $('legalOpenBtn').addEventListener('click', openLegalScreen);
     $('adminLegalOpenBtn').addEventListener('click', openLegalScreen);
 
+    // Admin-Login
+    $('adminLoginBtn').addEventListener('click', adminLogin);
+    $('adminLoginPw').addEventListener('keydown', e => { if (e.key === 'Enter') adminLogin(); });
+
+    // Admin-Dashboard Buttons
+    $('adminRefreshBtn').addEventListener('click', adminLoadDashboard);
+    $('adminLogoutBtn').addEventListener('click', () => {
+      adminToken = null;
+      window.__getAdminToken = () => null;
+      $('adminDashboard').classList.add('hidden');
+      $('adminLoginBox').classList.remove('hidden');
+      $('adminLoginUser').value = '';
+      $('adminLoginPw').value = '';
+      $('adminLoginErr').textContent = '';
+    });
+    $('adminPauseBtn').addEventListener('click', async () => {
+      const reason = prompt('Grund für Pause (optional):') || 'Manuell pausiert';
+      await adminPost('/admin/pause-purchases', { reason });
+      adminLoadDashboard();
+    });
+    $('adminResumeBtn').addEventListener('click', async () => {
+      await adminPost('/admin/resume-purchases', {});
+      adminLoadDashboard();
+    });
+    $('adminGenCodeBtn').addEventListener('click', async () => {
+      const data = await adminPost('/admin/generate-code', {});
+      if (data && data.ok) {
+        $('adminGeneratedCode').textContent = '✅ ' + data.code;
+        navigator.clipboard && navigator.clipboard.writeText(data.code).catch(()=>{});
+      }
+    });
+    $('adminLoadCodesBtn').addEventListener('click', adminLoadCodes);
+    $('adminLoadUsersBtn').addEventListener('click', adminLoadUsers);
+    $('adminLoadCommBtn').addEventListener('click', adminLoadCommunity);
+    $('adminLoadLogBtn').addEventListener('click', adminLoadSecLog);
+    $('adminExportBtn').addEventListener('click', adminExport);
+    $('adminWipeBtn').addEventListener('click', async () => {
+      if (!confirm('Server-Daten wirklich löschen? (Nutzer, Codes, Community)')) return;
+      if (!confirm('Letzter Schritt – wirklich?')) return;
+      await adminPost('/admin/wipe', {});
+      alert('Server-Daten gelöscht.');
+      adminLoadDashboard();
+    });
+
     // Backend & Werkzeuge
     $('saveBackendBtn').addEventListener('click', () => {
       const url = ($('adminBackend').value || '').trim().replace(/\/$/,'');
@@ -148,7 +214,7 @@
       checkBackend();
     });
     $('testBackendBtn').addEventListener('click', checkBackend);
-    $('setBackendBtn').addEventListener('click', () => { setActiveTab('admin'); show('screenAdmin'); });
+    $('setBackendBtn').addEventListener('click', () => { setActiveTab('admin'); showAdminScreen(); });
     $('lockNowBtn').addEventListener('click', () => {
       window.FabVault.lock();
       sessionStorage.removeItem('__mpw');
@@ -206,6 +272,184 @@
     wireModalEvents();
   }
 
+  // ---- Admin-Hilfsfunktionen ----
+
+  function showAdminScreen() {
+    show('screenAdmin');
+    if (adminToken) {
+      $('adminLoginBox').classList.add('hidden');
+      $('adminDashboard').classList.remove('hidden');
+      adminLoadDashboard();
+    } else {
+      $('adminLoginBox').classList.remove('hidden');
+      $('adminDashboard').classList.add('hidden');
+    }
+  }
+
+  function adminBackendUrl() {
+    return (localStorage.getItem('fabmargin_backend_url') || '').replace(/\/$/,'');
+  }
+
+  async function adminPost(path, data) {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte zuerst Backend-URL eintragen.'); return null; }
+    try {
+      const r = await fetch(base + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (adminToken || '') },
+        body: JSON.stringify(data)
+      });
+      return await r.json();
+    } catch (e) { alert('Fehler: ' + e.message); return null; }
+  }
+
+  async function adminGet(path) {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte zuerst Backend-URL eintragen.'); return null; }
+    try {
+      const r = await fetch(base + path, {
+        headers: { 'Authorization': 'Bearer ' + (adminToken || '') }
+      });
+      return await r.json();
+    } catch (e) { alert('Fehler: ' + e.message); return null; }
+  }
+
+  async function adminLogin() {
+    const user = ($('adminLoginUser').value || '').trim();
+    const pw = ($('adminLoginPw').value || '');
+    $('adminLoginErr').textContent = '';
+    if (!user || !pw) { $('adminLoginErr').textContent = 'Benutzername und Passwort erforderlich.'; return; }
+    const base = adminBackendUrl();
+    if (!base) { $('adminLoginErr').textContent = 'Bitte zuerst Backend-URL in den Einstellungen eintragen.'; return; }
+    try {
+      const r = await fetch(base + '/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password: pw })
+      });
+      const d = await r.json();
+      if (!d.ok) { $('adminLoginErr').textContent = '❌ ' + (d.error || 'Fehler'); return; }
+      adminToken = d.token;
+      window.__getAdminToken = () => adminToken;
+      $('adminLoginPw').value = '';
+      $('adminLoginBox').classList.add('hidden');
+      $('adminDashboard').classList.remove('hidden');
+      adminLoadDashboard();
+    } catch (e) { $('adminLoginErr').textContent = '❌ Nicht erreichbar: ' + e.message; }
+  }
+
+  async function adminLoadDashboard() {
+    const d = await adminGet('/admin/dashboard');
+    if (!d || !d.ok) return;
+    $('statUsers').textContent = d.users;
+    $('statCodes').textContent = d.unusedCodes;
+    $('statComm').textContent = d.communityPending;
+    $('statIncidents').textContent = d.incidents;
+    const paused = d.purchasesPaused;
+    $('adminPurchaseStatus').innerHTML = paused
+      ? '<span style="color:var(--red)">⏸ Käufe pausiert' + (d.pauseReason ? ': ' + d.pauseReason : '') + '</span>'
+      : '<span style="color:var(--green,#4caf50)">▶ Käufe aktiv</span>';
+    $('adminBackend').value = localStorage.getItem('fabmargin_backend_url') || '';
+  }
+
+  async function adminLoadCodes() {
+    const d = await adminGet('/admin/codes');
+    if (!d || !d.ok) return;
+    const box = $('adminCodesList');
+    if (!d.codes.length) { box.innerHTML = '<p class="muted small">Keine Codes vorhanden.</p>'; return; }
+    box.innerHTML = d.codes.map(c =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--border,#333)">
+        <span style="font-family:monospace;letter-spacing:1px">${c.code}</span>
+        <span class="muted small" style="margin-left:8px">${c.usedBy ? '✅ genutzt von ' + c.usedBy : '🔓 frei'}</span>
+      </div>`
+    ).join('');
+  }
+
+  async function adminLoadUsers() {
+    const d = await adminGet('/admin/users');
+    if (!d || !d.ok) return;
+    const box = $('adminUsersList');
+    if (!d.users.length) { box.innerHTML = '<p class="muted small">Keine Nutzer registriert.</p>'; return; }
+    box.innerHTML = d.users.map(u =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--border,#333)">
+        <div><strong>${u.username}</strong> <span class="muted small">${u.email || ''}</span>
+          ${u.blocked ? '<span style="color:var(--red);margin-left:6px">🚫 Gesperrt</span>' : ''}
+        </div>
+        <div class="row" style="margin-top:4px">
+          ${u.blocked
+            ? `<button class="tiny" onclick="window.__adminUnblock('${u.username}')">Entsperren</button>`
+            : `<button class="danger tiny" onclick="window.__adminBlock('${u.username}')">Sperren</button>`
+          }
+        </div>
+      </div>`
+    ).join('');
+    window.__adminBlock = async (username) => {
+      await adminPost('/admin/users/' + encodeURIComponent(username) + '/block', {});
+      adminLoadUsers();
+    };
+    window.__adminUnblock = async (username) => {
+      await adminPost('/admin/users/' + encodeURIComponent(username) + '/unblock', {});
+      adminLoadUsers();
+    };
+  }
+
+  async function adminLoadCommunity() {
+    const d = await adminGet('/admin/community');
+    if (!d || !d.ok) return;
+    const box = $('adminCommList');
+    if (!d.proposals.length) { box.innerHTML = '<p class="muted small">Keine Vorschläge vorhanden.</p>'; return; }
+    const statusLabel = { pending: '⏳ Ausstehend', approved: '✅ Angenommen', rejected: '❌ Abgelehnt' };
+    box.innerHTML = d.proposals.map(p =>
+      `<div style="padding:8px 0;border-bottom:1px solid var(--border,#333)">
+        <div><strong>${p.title}</strong> <span class="muted small">${statusLabel[p.status] || p.status}</span></div>
+        <div class="muted small" style="margin:2px 0">${(p.text || '').slice(0, 120)}</div>
+        ${p.status === 'pending' ? `
+          <div class="row" style="margin-top:4px">
+            <button class="tiny" onclick="window.__adminApprove('${p.id}')">✅ Annehmen</button>
+            <button class="danger tiny" onclick="window.__adminReject('${p.id}')">❌ Ablehnen</button>
+          </div>` : ''}
+      </div>`
+    ).join('');
+    window.__adminApprove = async (id) => {
+      await adminPost('/admin/community/' + id + '/approve', {});
+      adminLoadCommunity();
+    };
+    window.__adminReject = async (id) => {
+      await adminPost('/admin/community/' + id + '/reject', {});
+      adminLoadCommunity();
+    };
+  }
+
+  async function adminLoadSecLog() {
+    const d = await adminGet('/admin/security-log');
+    if (!d || !d.ok) return;
+    const box = $('adminSecLog');
+    if (!d.incidents.length) { box.innerHTML = '<p class="muted small">Keine Einträge.</p>'; return; }
+    const sev = { info: '#4caf50', warn: '#ff9800', error: '#f44336', crit: '#e91e63' };
+    box.innerHTML = d.incidents.map(i =>
+      `<div style="padding:4px 0;border-bottom:1px solid var(--border,#333);font-size:.8em">
+        <span style="color:${sev[i.severity]||'#aaa'}">[${i.severity.toUpperCase()}]</span>
+        <span class="muted"> ${i.time ? i.time.replace('T',' ').slice(0,19) : ''}</span>
+        <span> ${i.type}: ${i.detail || ''}</span>
+      </div>`
+    ).join('');
+  }
+
+  async function adminExport() {
+    const base = adminBackendUrl();
+    if (!base) { alert('Bitte Backend-URL eintragen.'); return; }
+    const url = base + '/admin/export';
+    try {
+      const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + (adminToken || '') } });
+      if (!r.ok) { alert('Export fehlgeschlagen.'); return; }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fabmargin-server-export.json';
+      a.click();
+    } catch (e) { alert('Fehler: ' + e.message); }
+  }
+
   async function doLogin() {
     const pw = $('loginPw').value;
     $('loginError').textContent = '';
@@ -221,7 +465,36 @@
     }
   }
 
+  function renderUserProfile() {
+    const card = $('userProfileCard');
+    if (!card) return;
+    const user = window.UserAuth && window.UserAuth.current();
+    if (user && user.username) {
+      card.classList.remove('hidden');
+      const nameEl = $('userProfileName');
+      const emailEl = $('userProfileEmail');
+      if (nameEl) nameEl.textContent = user.username;
+      if (emailEl && user.email) emailEl.textContent = user.email;
+      const modsEl = $('userPurchasedModules');
+      if (modsEl) {
+        const owned = window.PurchaseManager ? window.PurchaseManager.ownedList() : [];
+        if (owned.length) {
+          modsEl.innerHTML = '<p class="muted small"><strong>Gekaufte Module:</strong></p>' +
+            owned.filter(id => id !== 'feat_bundle_all').map(id => {
+              const f = window.FEATURE_CATALOG ? window.FEATURE_CATALOG.find(x => x.id === id) : null;
+              return f ? `<span style="margin-right:6px">${f.icon} ${f.title}</span>` : '';
+            }).join('');
+        } else {
+          modsEl.innerHTML = '<p class="muted small">Noch keine Module gekauft.</p>';
+        }
+      }
+    } else {
+      card.classList.add('hidden');
+    }
+  }
+
   function renderHome() {
+    renderUserProfile();
     renderOwned();
     renderCreditBalance();
     renderCreditFeatures();
@@ -439,32 +712,163 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
+      if (window.BetaSystem && typeof window.BetaSystem.checkBetaToken === 'function' && window.BetaSystem.checkBetaToken()) {
+        finishSplash();
+        return;
+      }
       boot();
       finishSplash();
     }, SPLASH_DELAY_MS);
   });
 })();
 
-// ------- Erweiterung v3: Kundenlogin & Community -------
+// ------- Erweiterung v4: Beta-Tester + Anti-Piracy Admin-Panel -------
+(function(){
+  const $=id=>document.getElementById(id);
+  function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+  function getAdminToken(){
+    return typeof window.__getAdminToken==='function'?window.__getAdminToken():null;
+  }
+  function getBase(){ return (localStorage.getItem('fabmargin_backend_url')||'').replace(/\/$/,''); }
+
+  async function betaPost(path,data){
+    const base=getBase(); if(!base){alert('Bitte Backend-URL eintragen.');return null;}
+    const tk=getAdminToken();
+    try{
+      const r=await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+(tk||'')},body:JSON.stringify(data)});
+      return await r.json();
+    }catch(e){alert('Fehler: '+e.message);return null;}
+  }
+  async function betaGet(path){
+    const base=getBase(); if(!base){alert('Bitte Backend-URL eintragen.');return null;}
+    const tk=getAdminToken();
+    try{
+      const r=await fetch(base+path,{headers:{'Authorization':'Bearer '+(tk||'')}});
+      return await r.json();
+    }catch(e){alert('Fehler: '+e.message);return null;}
+  }
+
+  async function adminBetaInvite(){
+    const name=($('betaInviteName').value||'').trim();
+    const email=($('betaInviteEmail').value||'').trim();
+    if(!name||!email){alert('Name und E-Mail erforderlich.');return;}
+    const d=await betaPost('/admin/beta/invite',{name,email});
+    if(!d||!d.ok){alert('Fehler: '+(d&&d.error||'Unbekannt'));return;}
+    // Zeige generischen Link (App-URL + ?token=...)
+    const fullLink=location.origin+location.pathname+'?token='+d.token;
+    const linkDiv=$('betaGeneratedLink');
+    const linkText=$('betaLinkText');
+    if(linkDiv&&linkText){
+      linkText.textContent=fullLink;
+      linkDiv.style.display='block';
+    }
+    $('betaInviteName').value='';
+    $('betaInviteEmail').value='';
+  }
+
+  async function adminBetaLoadList(){
+    const d=await betaGet('/admin/beta/list');
+    if(!d||!d.ok) return;
+    const box=$('betaTesterList');
+    if(!d.invites.length){box.innerHTML='<p class="muted small">Keine Beta-Einladungen.</p>';return;}
+    box.innerHTML='';
+    const statusColor={offen:'#ffc35b',aktiv:'#45d483',abgelaufen:'#a9b8d4',widerrufen:'#ff6b75'};
+    d.invites.forEach(inv=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div><strong>${esc(inv.name)}</strong> <span class="muted small">&lt;${esc(inv.email)}&gt;</span>
+          <span style="color:${statusColor[inv.status]||'#aaa'};margin-left:6px;font-size:12px">● ${esc(inv.status)}</span>
+        </div>
+        <div class="muted small">Erstellt: ${esc((inv.createdAt||'').slice(0,10))} · Läuft ab: ${esc((inv.expiresAt||'').slice(0,10))}</div>
+        ${inv.usedBy?`<div class="muted small">Aktiviert von: ${esc(inv.usedBy)}</div>`:''}`;
+      if(!inv.revoked&&!inv.usedAt){
+        const btn=document.createElement('button');
+        btn.className='danger tiny'; btn.style.marginTop='4px'; btn.textContent='Widerrufen';
+        btn.onclick=()=>{
+          if(!confirm('Einladung widerrufen?')) return;
+          betaPost('/admin/beta/revoke/'+encodeURIComponent(inv.token),{}).then(()=>adminBetaLoadList());
+        };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
+  }
+
+  async function adminInstancesLoad(){
+    const d=await betaGet('/admin/instances');
+    if(!d||!d.ok) return;
+    const box=$('instancesList');
+    if(!d.instances.length){box.innerHTML='<p class="muted small">Keine Instanzen registriert.</p>';return;}
+    box.innerHTML='';
+    d.instances.forEach(inst=>{
+      const div=document.createElement('div');
+      div.style.cssText='padding:8px 0;border-bottom:1px solid var(--line,#333)';
+      div.innerHTML=`<div class="muted small" style="font-family:monospace">${esc(inst.instanceId)}</div>
+        <div class="small">${esc(String(inst.ips.length))} IP(s): ${esc(inst.ips.join(', '))}</div>
+        ${inst.blockedAt?`<div style="color:var(--red)">🚫 Gesperrt: ${esc(inst.blockReason||'')}</div>`:'<span style="color:var(--green)">✅ Aktiv</span>'}`;
+      if(inst.blockedAt){
+        const btn=document.createElement('button');
+        btn.className='tiny'; btn.style.marginTop='4px'; btn.textContent='Entsperren';
+        btn.onclick=()=>{ betaPost('/admin/instances/'+encodeURIComponent(inst.instanceId)+'/unblock',{}).then(()=>adminInstancesLoad()); };
+        div.appendChild(btn);
+      }
+      box.appendChild(div);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    if($('betaInviteBtn')) $('betaInviteBtn').addEventListener('click',adminBetaInvite);
+    if($('betaCopyLinkBtn')) $('betaCopyLinkBtn').addEventListener('click',()=>{
+      const txt=$('betaLinkText');
+      if(txt&&navigator.clipboard) navigator.clipboard.writeText(txt.textContent).then(()=>alert('Link kopiert!')).catch(()=>{});
+    });
+    if($('betaLoadListBtn')) $('betaLoadListBtn').addEventListener('click',adminBetaLoadList);
+    if($('instancesLoadBtn')) $('instancesLoadBtn').addEventListener('click',adminInstancesLoad);
+  });
+})();
 (function(){
   const $=id=>document.getElementById(id);
   document.addEventListener('DOMContentLoaded',()=>{
-    if($('uActivateSwitch')) $('uActivateSwitch').onclick=()=>$('uActivateBox').classList.toggle('hidden');
+    // Umschalten zwischen Login und Registrierung
+    if($('uRegisterSwitch')) $('uRegisterSwitch').onclick=()=>{
+      $('uLoginBox').classList.add('hidden');
+      $('uRegisterBox').classList.remove('hidden');
+    };
+    if($('uLoginSwitch')) $('uLoginSwitch').onclick=()=>{
+      $('uRegisterBox').classList.add('hidden');
+      $('uLoginBox').classList.remove('hidden');
+    };
+    // Rückwärtskompatibilität: alter Aktivierungs-Button-Alias
+    if($('uActivateSwitch')) $('uActivateSwitch').onclick=()=>{
+      $('uLoginBox')&&$('uLoginBox').classList.add('hidden');
+      $('uRegisterBox')&&$('uRegisterBox').classList.remove('hidden');
+    };
     if($('uLoginBtn')) $('uLoginBtn').onclick=async()=>{
       $('uLoginErr').textContent='';
       try{await window.UserAuth.login($('uLoginUser').value.trim(),$('uLoginPw').value);
         document.getElementById('screenUserLogin').classList.add('hidden');
+        document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uLoginErr').textContent=e.message;}
     };
     if($('uActivateBtn')) $('uActivateBtn').onclick=async()=>{
       $('uActErr').textContent='';
-      try{await window.UserAuth.activate($('uCode').value.trim(),$('uNewUser').value.trim(),$('uNewPw').value,$('uEmail').value.trim());
+      try{await window.UserAuth.register($('uNewUser').value.trim(),$('uEmail').value.trim(),$('uNewPw').value,$('uCode').value.trim());
         document.getElementById('screenUserLogin').classList.add('hidden');
+        document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uActErr').textContent=e.message;}
     };
-    if($('commBackBtn')) $('commBackBtn').onclick=()=>{document.getElementById('screenCommunity').classList.add('hidden');document.getElementById('screenHome').classList.remove('hidden');};
+    if($('userLogoutBtn')) $('userLogoutBtn').onclick=async()=>{
+      await window.UserAuth.logout();
+      const card=document.getElementById('userProfileCard');
+      if(card) card.classList.add('hidden');
+    };
+    if($('commBackBtn')) $('commBackBtn').onclick=()=>{
+      const homeBtn = document.querySelector('nav.bottom button[data-tab="home"]');
+      if (homeBtn) homeBtn.click();
+    };
     if($('commPostBtn')) $('commPostBtn').onclick=async()=>{
       const t=$('commTitle').value.trim(),x=$('commText').value.trim();
       if(!t||!x) return alert('Titel und Text erforderlich');
@@ -488,4 +892,146 @@
     }catch(e){el.innerHTML='<p class="small" style="color:var(--red)">Fehler: '+e.message+'</p>';}
   }
   window.__renderComm=renderComm;
+})();
+
+// ------- Support-Chat -------
+(function(){
+  const STORAGE_KEY = 'fabmargin_support_chat';
+  const BOT_NAME = 'Support-Bot';
+  const CONTACT_EMAIL = 'printprofit3d_business.stoneware127@passmail.net';
+
+  function loadMessages() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch(e) { return []; }
+  }
+
+  function saveMessages(msgs) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function getBotResponse(text) {
+    const t = text.toLowerCase();
+    if (t.includes('drucker') || t.includes('profil') || t.includes('printer')) {
+      return '🖨️ Fragen zu Drucker-Profilen? Schau im Drucker-Tab – dort findest du alle 25 Profile und kannst eigene anpassen!';
+    }
+    if (t.includes('credit') || t.includes('premium') || t.includes('guthaben') || t.includes('abo')) {
+      return '⭐ Credits & Premium: Im Premium-Tab kannst du Credits kaufen und Premium-Funktionen freischalten. Credits werden pro Nutzung abgezogen.';
+    }
+    if (t.includes('kauf') || t.includes('bezahl') || t.includes('preis') || t.includes('kosten') || t.includes('zahlung')) {
+      return '💳 Käufe & Bezahlung: Alle Käufe laufen sicher über unsere App. Bei Fragen oder Problemen schreib uns direkt an: ' + CONTACT_EMAIL;
+    }
+    return '👋 Danke für deine Nachricht! Unser Team meldet sich bald. Bei dringenden Fragen erreichst du uns unter: ' + CONTACT_EMAIL;
+  }
+
+  function renderChat() {
+    const el = document.getElementById('supportMessages');
+    if (!el) return;
+    const msgs = loadMessages();
+    if (!msgs.length) {
+      el.innerHTML = '<p class="muted small" style="text-align:center;padding:16px 0">Noch keine Nachrichten. Schreib uns – wir helfen gerne! 👋</p>';
+      return;
+    }
+    el.innerHTML = msgs.map(m => {
+      const isUser = m.role === 'user';
+      return `<div style="display:flex;flex-direction:column;align-items:${isUser ? 'flex-end' : 'flex-start'}">
+        <div style="max-width:80%;background:${isUser ? 'var(--accent,#2563eb)' : 'var(--panel,#1a1f2e)'};color:${isUser ? '#fff' : 'inherit'};border-radius:${isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};padding:8px 12px;font-size:14px">${escapeHtml(m.text)}</div>
+        <span class="small muted" style="font-size:11px;margin:2px 4px">${isUser ? 'Du' : BOT_NAME} · ${formatTime(m.ts)}</span>
+      </div>`;
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function sendMessage(text) {
+    const msgs = loadMessages();
+    const ts = new Date().toISOString();
+    msgs.push({ role: 'user', text, ts });
+    saveMessages(msgs);
+    renderChat();
+
+    // Versuche Backend
+    const backendUrl = localStorage.getItem('fabmargin_backend_url') || '';
+    if (backendUrl) {
+      try {
+        await fetch(backendUrl + '/support/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, ts })
+        });
+      } catch(e) { /* ignorieren – lokal gespeichert */ }
+    }
+
+    // Bot-Antwort
+    setTimeout(() => {
+      const msgs2 = loadMessages();
+      msgs2.push({ role: 'bot', text: getBotResponse(text), ts: new Date().toISOString() });
+      saveMessages(msgs2);
+      renderChat();
+    }, 600);
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const sendBtn = document.getElementById('supportSendBtn');
+    const input = document.getElementById('supportInput');
+    const clearBtn = document.getElementById('supportClearBtn');
+    const adminRefreshBtn = document.getElementById('adminSupportRefreshBtn');
+
+    if (sendBtn && input) {
+      const doSend = () => {
+        const t = input.value.trim();
+        if (!t) return;
+        input.value = '';
+        sendMessage(t);
+      };
+      sendBtn.onclick = doSend;
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') doSend(); });
+    }
+
+    if (clearBtn) {
+      clearBtn.onclick = () => {
+        if (confirm('Chat-Verlauf löschen?')) {
+          localStorage.removeItem(STORAGE_KEY);
+          renderChat();
+        }
+      };
+    }
+
+    if (adminRefreshBtn) {
+      adminRefreshBtn.onclick = loadAdminSupportMessages;
+    }
+
+    renderChat();
+  });
+
+  async function loadAdminSupportMessages() {
+    const el = document.getElementById('adminSupportList');
+    if (!el) return;
+    const backendUrl = localStorage.getItem('fabmargin_backend_url') || '';
+    if (!backendUrl) {
+      el.innerHTML = '<p class="muted small">Kein Backend eingestellt.</p>';
+      return;
+    }
+    try {
+      const r = await fetch(backendUrl + '/support/messages');
+      const j = await r.json();
+      if (!j.messages || !j.messages.length) {
+        el.innerHTML = '<p class="muted small">Keine Support-Nachrichten vorhanden.</p>';
+        return;
+      }
+      el.innerHTML = j.messages.map(m =>
+        `<div class="step" style="margin-bottom:6px"><span class="small muted">${new Date(m.ts).toLocaleString('de-DE')}</span><br>${escapeHtml(m.text)}</div>`
+      ).join('');
+    } catch(e) {
+      el.innerHTML = '<p class="small" style="color:var(--red)">Fehler: ' + escapeHtml(e.message) + '</p>';
+    }
+  }
+
+  window.__renderSupportChat = renderChat;
 })();

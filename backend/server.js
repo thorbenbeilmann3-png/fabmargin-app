@@ -49,6 +49,12 @@ let state = loadState();
 function saveState() { const tmp = DATA_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); fs.renameSync(tmp, DATA_FILE); }
 if (!fs.existsSync(DATA_FILE)) saveState();
 if (!state.purchases) { state.purchases = {}; saveState(); }
+if (!state.users) { state.users = {}; saveState(); }            // username -> {email, passwordHash, salt, activatedAt, blocked}
+if (!state.activationCodes) { state.activationCodes = {}; saveState(); } // code -> {createdAt, usedBy, usedAt}
+if (!state.community) { state.community = []; saveState(); }    // [{id, title, text, author, votes, status, createdAt}]
+if (!state.supportMessages) { state.supportMessages = []; saveState(); }
+if (!state.betaInvites) { state.betaInvites = {}; saveState(); }  // token -> {name, email, createdAt, expiresAt, usedBy, usedAt, revoked}
+if (!state.instances) { state.instances = {}; saveState(); }      // instanceId -> {ips: [], blockedAt, blockReason}
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -160,7 +166,346 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, token: createSession(), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
     }
 
-    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
+    // ------- User Auth -------
+
+    // Registrierung mit Aktivierungscode
+    if (u.pathname === '/auth/register' && req.method === 'POST') {
+      if (!rateOk('auth_reg:' + ip, 5, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b = await body(req);
+      const { username, email, password, code } = b;
+      if (!username || !email || !password || !code) return json(res, 400, { ok: false, error: 'Alle Felder erforderlich' }, origin);
+      if (typeof username !== 'string' || username.length < 3 || username.length > 40) return json(res, 400, { ok: false, error: 'Benutzername muss 3–40 Zeichen lang sein' }, origin);
+      if (typeof password !== 'string' || password.length < 8) return json(res, 400, { ok: false, error: 'Passwort muss mindestens 8 Zeichen lang sein' }, origin);
+      if (state.users[username]) return json(res, 409, { ok: false, error: 'Benutzername bereits vergeben' }, origin);
+      const ac = state.activationCodes[code];
+      if (!ac) return json(res, 400, { ok: false, error: 'Ungültiger Aktivierungscode' }, origin);
+      if (ac.usedBy) return json(res, 400, { ok: false, error: 'Aktivierungscode wurde bereits verwendet' }, origin);
+      const salt = b64(crypto.randomBytes(16));
+      const passwordHash = hashPassword(password, salt);
+      state.users[username] = { email, passwordHash, salt, activatedAt: new Date().toISOString(), blocked: false };
+      state.activationCodes[code].usedBy = username;
+      state.activationCodes[code].usedAt = new Date().toISOString();
+      saveState();
+      const token = b64(crypto.randomBytes(32));
+      sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
+      incident('user_register', 'user=' + username, 'info');
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    // Login
+    if (u.pathname === '/auth/login' && req.method === 'POST') {
+      if (!rateOk('auth_login:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Versuche' }, origin);
+      const b = await body(req);
+      const { username, password } = b;
+      if (!username || !password) return json(res, 400, { ok: false, error: 'Benutzername und Passwort erforderlich' }, origin);
+      const user = state.users[username];
+      if (!user) return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
+      if (user.blocked) return json(res, 403, { ok: false, error: 'Konto gesperrt. Bitte den Support kontaktieren.' }, origin);
+      if (!safeEqual(hashPassword(password, user.salt), user.passwordHash)) {
+        incident('user_login_failed', 'user=' + username + ' ip=' + ip, 'warn');
+        return json(res, 401, { ok: false, error: 'Falscher Benutzername oder Passwort' }, origin);
+      }
+      const token = b64(crypto.randomBytes(32));
+      sessions.set('user:' + token, { exp: Date.now() + 30 * 60 * 1000, username });
+      incident('user_login', 'user=' + username, 'info');
+      return json(res, 200, { ok: true, token, username }, origin);
+    }
+
+    // Logout
+    if (u.pathname === '/auth/logout' && req.method === 'POST') {
+      const h = String(req.headers.authorization || '');
+      const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+      if (t) sessions.delete('user:' + t);
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Profil abrufen (geschützt)
+    if (u.pathname === '/auth/profile' && req.method === 'GET') {
+      const h = String(req.headers.authorization || '');
+      const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+      const sess = sessions.get('user:' + t);
+      if (!sess || sess.exp < Date.now()) { sessions.delete('user:' + t); return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin); }
+      const user = state.users[sess.username];
+      if (!user) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      return json(res, 200, { ok: true, username: sess.username, email: user.email, activatedAt: user.activatedAt, blocked: user.blocked }, origin);
+    }
+
+    // Support-Chat: Nachricht speichern
+    if (u.pathname === '/support/message' && req.method === 'POST') {
+      if (!rateOk('support:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b2 = await body(req);
+      if (!b2.text || typeof b2.text !== 'string' || !b2.text.trim()) return json(res, 400, { ok: false, error: 'text erforderlich' }, origin);
+      if (!state.supportMessages) state.supportMessages = [];
+      state.supportMessages.unshift({ id: crypto.randomUUID(), text: b2.text.trim().slice(0, 500), ts: b2.ts || new Date().toISOString(), ip });
+      state.supportMessages = state.supportMessages.slice(0, 500);
+      saveState();
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Support-Chat: Nachrichten abrufen (Admin)
+    if (u.pathname === '/support/messages' && req.method === 'GET') {
+      return json(res, 200, { ok: true, messages: state.supportMessages || [] }, origin);
+    }
+
+    // ---------- Geschützte Admin-Endpunkte ----------
+
+    if (u.pathname.startsWith('/admin/') && u.pathname !== '/admin/login') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+    }
+
+    // Dashboard
+    if (u.pathname === '/admin/dashboard' && req.method === 'GET') {
+      return json(res, 200, {
+        ok: true,
+        users: Object.keys(state.users || {}).length,
+        blockedUsers: Object.values(state.users || {}).filter(u => u.blocked).length,
+        activationCodes: Object.keys(state.activationCodes || {}).length,
+        unusedCodes: Object.values(state.activationCodes || {}).filter(c => !c.usedBy).length,
+        communityTotal: (state.community || []).length,
+        communityPending: (state.community || []).filter(x => x.status === 'pending').length,
+        purchasesPaused: state.security.purchasesPaused,
+        pauseReason: state.security.pauseReason,
+        failedLogins: state.security.failedLogins,
+        incidents: state.security.incidents.length
+      }, origin);
+    }
+
+    // Aktivierungscode generieren
+    if (u.pathname === '/admin/generate-code' && req.method === 'POST') {
+      const segments = () => b64(crypto.randomBytes(3)).replace(/[^A-Z0-9]/g, x => String(x.charCodeAt(0) % 10)).toUpperCase().slice(0, 4);
+      let code;
+      do { code = [segments(), segments(), segments()].join('-'); } while (state.activationCodes[code]);
+      state.activationCodes[code] = { createdAt: new Date().toISOString(), usedBy: null, usedAt: null };
+      saveState();
+      incident('admin_generate_code', 'code=' + code, 'info');
+      return json(res, 200, { ok: true, code }, origin);
+    }
+
+    // Nutzer-Liste
+    if (u.pathname === '/admin/users' && req.method === 'GET') {
+      const list = Object.entries(state.users || {}).map(([username, d]) => ({
+        username, email: d.email, activatedAt: d.activatedAt, blocked: !!d.blocked, blockedAt: d.blockedAt || null
+      }));
+      return json(res, 200, { ok: true, users: list }, origin);
+    }
+
+    // Nutzer sperren
+    const blockMatch = u.pathname.match(/^\/admin\/users\/([^/]+)\/(block|unblock)$/);
+    if (blockMatch && req.method === 'POST') {
+      const username = decodeURIComponent(blockMatch[1]);
+      const action = blockMatch[2];
+      if (!state.users[username]) return json(res, 404, { ok: false, error: 'Nutzer nicht gefunden' }, origin);
+      state.users[username].blocked = action === 'block';
+      if (action === 'block') state.users[username].blockedAt = new Date().toISOString();
+      else delete state.users[username].blockedAt;
+      saveState();
+      incident('admin_user_' + action, 'user=' + username, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Sicherheits-Log
+    if (u.pathname === '/admin/security-log' && req.method === 'GET') {
+      return json(res, 200, { ok: true, incidents: state.security.incidents }, origin);
+    }
+
+    // Passwort ändern
+    if (u.pathname === '/admin/change-password' && req.method === 'POST') {
+      const bp = await body(req);
+      if (!bp.newPassword || bp.newPassword.length < 12) return json(res, 400, { ok: false, error: 'Mindestens 12 Zeichen' }, origin);
+      const newSalt = b64(crypto.randomBytes(16));
+      state.admin.salt = newSalt;
+      state.admin.passwordHash = hashPassword(bp.newPassword, newSalt);
+      state.admin.updatedAt = new Date().toISOString();
+      saveState();
+      incident('admin_password_changed', 'ip=' + ip, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Käufe pausieren / fortsetzen
+    if (u.pathname === '/admin/pause-purchases' && req.method === 'POST') {
+      const bpp = await body(req);
+      state.security.purchasesPaused = true;
+      state.security.pauseReason = bpp.reason || 'Manuell pausiert';
+      saveState();
+      incident('admin_pause_purchases', state.security.pauseReason, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+    if (u.pathname === '/admin/resume-purchases' && req.method === 'POST') {
+      state.security.purchasesPaused = false;
+      state.security.pauseReason = '';
+      saveState();
+      incident('admin_resume_purchases', '', 'info');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Community-Liste (Admin-Sicht: alle inkl. pending)
+    if (u.pathname === '/admin/community' && req.method === 'GET') {
+      return json(res, 200, { ok: true, proposals: state.community || [] }, origin);
+    }
+
+    // Community-Vorschlag annehmen / ablehnen
+    const commMatch = u.pathname.match(/^\/admin\/community\/([^/]+)\/(approve|reject)$/);
+    if (commMatch && req.method === 'POST') {
+      const id = commMatch[1];
+      const action = commMatch[2];
+      const idx = (state.community || []).findIndex(x => x.id === id);
+      if (idx === -1) return json(res, 404, { ok: false, error: 'Vorschlag nicht gefunden' }, origin);
+      state.community[idx].status = action === 'approve' ? 'approved' : 'rejected';
+      state.community[idx].moderatedAt = new Date().toISOString();
+      saveState();
+      incident('admin_community_' + action, 'id=' + id, 'info');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Aktivierungscodes-Liste
+    if (u.pathname === '/admin/codes' && req.method === 'GET') {
+      const list = Object.entries(state.activationCodes || {}).map(([code, d]) => ({ code, ...d }));
+      return json(res, 200, { ok: true, codes: list }, origin);
+    }
+
+    // Daten-Export
+    if (u.pathname === '/admin/export' && req.method === 'GET') {
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        users: state.users,
+        activationCodes: state.activationCodes,
+        community: state.community,
+        security: { incidents: state.security.incidents, failedLogins: state.security.failedLogins, purchasesPaused: state.security.purchasesPaused }
+      };
+      incident('admin_export', 'ip=' + ip, 'warn');
+      const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': 'attachment; filename="fabmargin-export.json"', 'Cache-Control': 'no-store' };
+      if (origin) headers['Access-Control-Allow-Origin'] = origin;
+      res.writeHead(200, headers);
+      return res.end(JSON.stringify(exportData, null, 2));
+    }
+
+    // Daten-Wipe (nur Nutzer + Codes + Community, nicht Admin-Creds)
+    if (u.pathname === '/admin/wipe' && req.method === 'POST') {
+      state.users = {};
+      state.activationCodes = {};
+      state.community = [];
+      state.security.incidents = [];
+      state.security.failedLogins = 0;
+      saveState();
+      incident('admin_wipe', 'ip=' + ip, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // -------- Beta-Tester: Token validieren & Zugang gewähren --------
+    if (u.pathname === '/beta/join' && req.method === 'POST') {
+      if (!rateOk('beta:' + ip, 10, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const bj = await body(req);
+      const token = bj.token || u.searchParams.get('token') || '';
+      if (!token) return json(res, 400, { ok: false, error: 'token erforderlich' }, origin);
+      // Validate token format: base64url characters only, no prototype keys possible
+      if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return json(res, 400, { ok: false, error: 'Ungültiger Token' }, origin);
+      if (!Object.prototype.hasOwnProperty.call(state.betaInvites || {}, token)) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);
+      const invite = state.betaInvites[token];
+      if (!invite) return json(res, 404, { ok: false, error: 'Ungültiger Einladungslink' }, origin);
+      if (invite.revoked) return json(res, 403, { ok: false, error: 'Diese Einladung wurde widerrufen' }, origin);
+      if (new Date(invite.expiresAt) < new Date()) return json(res, 410, { ok: false, error: 'Einladungslink abgelaufen' }, origin);
+      if (invite.usedAt) return json(res, 409, { ok: false, error: 'Einladungslink wurde bereits verwendet' }, origin);
+      invite.usedAt = new Date().toISOString();
+      invite.usedBy = bj.username || ip;
+      saveState();
+      incident('beta_join', 'token=' + token + ' ip=' + ip, 'info');
+      return json(res, 200, { ok: true, role: 'beta', name: invite.name }, origin);
+    }
+
+    // -------- Sicherheit: Integritätsprüfung --------
+    if (u.pathname === '/security/check-integrity' && req.method === 'POST') {
+      if (!rateOk('integrity:' + ip, 60, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const bi = await body(req);
+      const instanceId = bi.instanceId || '';
+      if (!instanceId) return json(res, 400, { ok: false, error: 'instanceId erforderlich' }, origin);
+      // Validate instanceId format to prevent prototype pollution
+      if (!/^[0-9a-f-]{8,64}$/i.test(instanceId)) return json(res, 400, { ok: false, error: 'Ungültige instanceId' }, origin);
+      if (!state.instances) state.instances = {};
+      const inst = state.instances[instanceId] || { ips: [] };
+      if (inst.blockedAt) return json(res, 200, { ok: false, blocked: true, reason: inst.blockReason || 'Zu viele Geräte' }, origin);
+      if (!inst.ips.includes(ip)) {
+        inst.ips.push(ip);
+        if (inst.ips.length > 3) {
+          inst.blockedAt = new Date().toISOString();
+          inst.blockReason = 'Mehr als 3 verschiedene IPs (' + inst.ips.length + ')';
+          state.instances[instanceId] = inst;
+          saveState();
+          incident('piracy_block', 'instanceId=' + instanceId + ' ips=' + inst.ips.length, 'warn');
+          return json(res, 200, { ok: false, blocked: true, reason: inst.blockReason }, origin);
+        }
+      }
+      state.instances[instanceId] = inst;
+      saveState();
+      return json(res, 200, { ok: true, blocked: false }, origin);
+    }
+
+    // -------- Sicherheit: Violation melden --------
+    if (u.pathname === '/security/report-violation' && req.method === 'POST') {
+      if (!rateOk('violation:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const bv = await body(req);
+      incident('security_violation', JSON.stringify({ ip, ...bv }).slice(0, 300), 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // -------- Admin: Beta-Einladung erstellen --------
+    if (u.pathname === '/admin/beta/invite' && req.method === 'POST') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const bb = await body(req);
+      if (!bb.name || !bb.email) return json(res, 400, { ok: false, error: 'name und email erforderlich' }, origin);
+      const token = b64(crypto.randomBytes(32));
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      if (!state.betaInvites) state.betaInvites = {};
+      state.betaInvites[token] = { name: bb.name.slice(0, 100), email: bb.email.slice(0, 200), createdAt: new Date().toISOString(), expiresAt, usedBy: null, usedAt: null, revoked: false };
+      saveState();
+      incident('admin_beta_invite', 'email=' + bb.email, 'info');
+      return json(res, 200, { ok: true, token, expiresAt }, origin);
+    }
+
+    // -------- Admin: Beta-Liste --------
+    if (u.pathname === '/admin/beta/list' && req.method === 'GET') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const list = Object.entries(state.betaInvites || {}).map(([token, d]) => ({
+        token, name: d.name, email: d.email, createdAt: d.createdAt, expiresAt: d.expiresAt,
+        usedBy: d.usedBy, usedAt: d.usedAt, revoked: d.revoked,
+        status: d.revoked ? 'widerrufen' : d.usedAt ? 'aktiv' : new Date(d.expiresAt) < new Date() ? 'abgelaufen' : 'offen'
+      }));
+      return json(res, 200, { ok: true, invites: list }, origin);
+    }
+
+    // -------- Admin: Beta-Einladung widerrufen --------
+    const betaRevokeMatch = u.pathname.match(/^\/admin\/beta\/revoke\/([^/]+)$/);
+    if (betaRevokeMatch && req.method === 'POST') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const token = decodeURIComponent(betaRevokeMatch[1]);
+      if (!state.betaInvites || !state.betaInvites[token]) return json(res, 404, { ok: false, error: 'Einladung nicht gefunden' }, origin);
+      state.betaInvites[token].revoked = true;
+      saveState();
+      incident('admin_beta_revoke', 'token=' + token, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // -------- Admin: Gesperrte Instanzen anzeigen --------
+    if (u.pathname === '/admin/instances' && req.method === 'GET') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const list = Object.entries(state.instances || {}).map(([instanceId, d]) => ({ instanceId, ips: d.ips, blockedAt: d.blockedAt || null, blockReason: d.blockReason || null }));
+      return json(res, 200, { ok: true, instances: list }, origin);
+    }
+
+    // -------- Admin: Instanz entsperren --------
+    const unblockMatch = u.pathname.match(/^\/admin\/instances\/([^/]+)\/unblock$/);
+    if (unblockMatch && req.method === 'POST') {
+      if (!sessionOk(req)) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const instanceId = decodeURIComponent(unblockMatch[1]);
+      if (!state.instances || !state.instances[instanceId]) return json(res, 404, { ok: false, error: 'Instanz nicht gefunden' }, origin);
+      delete state.instances[instanceId].blockedAt;
+      delete state.instances[instanceId].blockReason;
+      state.instances[instanceId].ips = [];
+      saveState();
+      incident('admin_instance_unblock', 'id=' + instanceId, 'info');
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen) (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
 
     return json(res, 404, { ok: false, error: 'Nicht gefunden' }, origin);
   } catch (e) {

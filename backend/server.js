@@ -809,7 +809,7 @@ const server = http.createServer(async (req, res) => {
       const otpauthUrl = `otpauth://totp/FabMargin:${encodeURIComponent(viewer.username)}?secret=${secret}&issuer=FabMargin&algorithm=SHA1&digits=6&period=30`;
       saveState();
       if (DEV_OTP_LOG) console.log('TOTP secret for', viewer.username, secret);
-      return json(res, 200, { ok: true, secret, otpauthUrl, backupCodes: recoveryCodes });
+      return json(res, 200, { ok: true, secret, otpauthUrl, backupCodes: recoveryCodes }, origin);
     }
 
     if (u.pathname === '/auth/2fa/verify' && req.method === 'POST') {
@@ -835,9 +835,10 @@ const server = http.createServer(async (req, res) => {
       viewer.user.twoFactor.enabled = true;
       viewer.user.twoFactor.secret = secret;
       viewer.user.twoFactor.pendingSecret = '';
+      viewer.user.twoFactor.recoveryCodesPreview = [];
       viewer.user.twoFactor.verifiedAt = new Date().toISOString();
       saveState();
-      return json(res, 200, { ok: true, enabled: true, usedBackupCode, remainingBackupCodes: viewer.user.twoFactor.backupCodeHashes.length });
+      return json(res, 200, { ok: true, enabled: true, usedBackupCode, remainingBackupCodes: viewer.user.twoFactor.backupCodeHashes.length }, origin);
     }
 
     if (u.pathname === '/user/devices' && req.method === 'GET') {
@@ -1005,7 +1006,10 @@ const server = http.createServer(async (req, res) => {
       if (STRIPE_WEBHOOK_SECRET) {
         let verified = false;
         if (stripeSignature) {
-          const parts = Object.fromEntries(stripeSignature.split(',').map(part => part.split('=').map(x => x.trim())).filter(part => part.length === 2));
+          const parts = Object.fromEntries(stripeSignature.split(',').map(part => {
+            const idx = part.indexOf('=');
+            return idx === -1 ? null : [part.slice(0, idx).trim(), part.slice(idx + 1).trim()];
+          }).filter(Boolean));
           const timestamp = parts.t;
           const signature = parts.v1;
           if (timestamp && signature) {
@@ -1243,7 +1247,7 @@ const server = http.createServer(async (req, res) => {
       if (!viewer) return json(res, 401, { ok: false, error: 'Bitte zuerst anmelden' }, origin);
       const profile = (state.slicerProfiles || []).find(item => item.id === slicerImageDeleteMatch[1]);
       if (!profile) return json(res, 404, { ok: false, error: 'Profil nicht gefunden' }, origin);
-      if (profile.owner !== viewer.username && viewer.user.role !== 'operator') return json(res, 403, { ok: false, error: 'Nicht erlaubt' }, origin);
+      if (profile.owner !== viewer.username && viewer.user.role !== 'operator' && !sessionOk(req)) return json(res, 403, { ok: false, error: 'Nicht erlaubt' }, origin);
       const imageIndex = Number(slicerImageDeleteMatch[2]);
       if (!Array.isArray(profile.images) || imageIndex < 0 || imageIndex >= profile.images.length) return json(res, 404, { ok: false, error: 'Bild nicht gefunden' }, origin);
       profile.images.splice(imageIndex, 1);

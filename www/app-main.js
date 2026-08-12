@@ -1065,6 +1065,14 @@
   function esc(s){
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
+  function safeExternalUrl(value) {
+    try {
+      const url = new URL(String(value || '').trim());
+      return url.protocol === 'https:' ? url.toString() : '';
+    } catch {
+      return '';
+    }
+  }
   function backend(){
     return (localStorage.getItem('fabmargin_backend_url') || '').replace(/\/$/,'');
   }
@@ -1438,7 +1446,8 @@
           : 'Checkout erstellt. Weiterleitung zu Stripe…';
         status.style.color = 'var(--muted)';
       }
-      if (data.checkoutUrl) window.open(data.checkoutUrl, '_blank', 'noopener');
+      const checkoutUrl = safeExternalUrl(data.checkoutUrl);
+      if (checkoutUrl && !data.mockMode) window.open(checkoutUrl, '_blank', 'noopener');
     } catch (e) {
       if (status) {
         status.textContent = '❌ ' + e.message;
@@ -1498,6 +1507,7 @@
         const targetId = slot.slotNumber === 1 ? 'bannerTopSlot' : slot.slotNumber === 2 ? 'bannerMiddleSlot' : 'bannerBottomSlot';
         const cardId = slots[targetId];
         if (!slot.active || !$(targetId) || !$(cardId)) return;
+        const website = safeExternalUrl(slot.active.website);
         $(targetId).innerHTML = `
           <div>
             <span class="label">Anzeige</span>
@@ -1506,7 +1516,7 @@
           </div>
           <div style="margin-left:auto;text-align:right">
             <div class="small muted">${esc(slot.position)} · ${esc(slot.priceRange)}</div>
-            <a href="${esc(slot.active.website)}" target="_blank" rel="noopener" style="color:var(--accent-soft)">Mehr erfahren</a>
+            ${website ? `<a href="${esc(website)}" target="_blank" rel="noopener" style="color:var(--accent-soft)">Mehr erfahren</a>` : '<span class="muted small">Kein sicherer Link</span>'}
           </div>
         `;
         $(cardId).classList.remove('hidden');

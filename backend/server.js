@@ -119,7 +119,8 @@ function json(res, status, obj, origin) {
   if (origin) headers['Access-Control-Allow-Origin'] = origin;
   res.writeHead(status, headers); res.end(JSON.stringify(obj));
 }
-async function body(req, maxLen = 32768) { let s = ''; for await (const c of req) { s += c; if (s.length > maxLen) throw new Error('Payload zu groß'); } return s ? JSON.parse(s) : {}; }
+async function rawBody(req, maxLen = 32768) { let s = ''; for await (const c of req) { s += c; if (s.length > maxLen) throw new Error('Payload zu groß'); } return s; }
+async function body(req, maxLen = 32768) { const s = await rawBody(req, maxLen); return s ? JSON.parse(s) : {}; }
 function originAllowed(req) { const o = req.headers.origin; if (!o) return ''; if (allowedOrigins.length && !allowedOrigins.includes(o)) return null; return o; }
 function bearerToken(req) {
   const h = String(req.headers.authorization || '');
@@ -317,6 +318,14 @@ function normalizePartnerCategory(value) {
   if (raw.includes('software') || raw.includes('slicer')) return 'Software';
   if (raw.includes('zubeh') || raw.includes('access')) return 'Zubehör';
   return 'Zubehör';
+}
+function normalizeHttpsUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'https:' ? url.toString() : '';
+  } catch {
+    return '';
+  }
 }
 function partnerTier(printerValue) {
   const value = Number(printerValue || 0);
@@ -791,6 +800,7 @@ const server = http.createServer(async (req, res) => {
         saveState();
         return json(res, 200, { ok: true, disabled: true });
       }
+      if (viewer.user.twoFactor.enabled) return json(res, 400, { ok: false, error: '2FA ist bereits aktiv. Bitte erst deaktivieren, bevor du neue Backup-Codes erzeugst.' }, origin);
       const secret = generateTotpSecret();
       const recoveryCodes = generateRecoveryCodes();
       viewer.user.twoFactor.pendingSecret = secret;
@@ -987,9 +997,25 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === '/payment/webhook' && req.method === 'POST') {
-      const payload = await body(req, 1024 * 128);
-      const secret = String(req.headers['stripe-signature'] || req.headers['x-security-secret'] || '');
-      if (STRIPE_WEBHOOK_SECRET && !safeEqual(secret, STRIPE_WEBHOOK_SECRET)) return json(res, 401, { ok: false, error: 'Webhook nicht autorisiert' }, origin);
+      const raw = await rawBody(req, 1024 * 128);
+      const payload = raw ? JSON.parse(raw) : {};
+      const stripeSignature = String(req.headers['stripe-signature'] || '');
+      const altSecret = String(req.headers['x-security-secret'] || '');
+      if (STRIPE_WEBHOOK_SECRET) {
+        let verified = false;
+        if (stripeSignature) {
+          const parts = Object.fromEntries(stripeSignature.split(',').map(part => part.split('=').map(x => x.trim())).filter(part => part.length === 2));
+          const timestamp = parts.t;
+          const signature = parts.v1;
+          if (timestamp && signature) {
+            const expected = crypto.createHmac('sha256', STRIPE_WEBHOOK_SECRET).update(`${timestamp}.${raw}`).digest('hex');
+            verified = safeEqual(signature, expected);
+          }
+        } else if (altSecret) {
+          verified = safeEqual(altSecret, STRIPE_WEBHOOK_SECRET);
+        }
+        if (!verified) return json(res, 401, { ok: false, error: 'Webhook nicht autorisiert' }, origin);
+      }
       const eventType = String(payload.type || '');
       const sessionId = String(payload.sessionId || payload.data?.object?.client_reference_id || payload.data?.object?.metadata?.sessionId || '');
       const session = state.paymentSessions[sessionId] || Object.values(state.paymentSessions).find(item => item.stripeSessionId === payload.data?.object?.id);
@@ -1019,7 +1045,7 @@ const server = http.createServer(async (req, res) => {
       const partner = {
         id: crypto.randomUUID(),
         companyName: String(payload.companyName || '').trim().slice(0, 120),
-        website: String(payload.website || '').trim().slice(0, 200),
+        website: normalizeHttpsUrl(String(payload.website || '').trim().slice(0, 200)),
         contactEmail: String(payload.contactEmail || '').trim().slice(0, 200),
         cooperationType: String(payload.cooperationType || '').trim().slice(0, 80),
         printerModel: String(payload.printerModel || '').trim().slice(0, 120),
@@ -1032,6 +1058,7 @@ const server = http.createServer(async (req, res) => {
         createdAt: new Date().toISOString(),
         status: 'pending'
       };
+      if (String(payload.website || '').trim() && !partner.website) return json(res, 400, { ok: false, error: 'Bitte eine gültige HTTPS-Website angeben' }, origin);
       if (!partner.companyName || !partner.website || !partner.contactEmail || !partner.cooperationType || !partner.printerModel || !partner.description) {
         return json(res, 400, { ok: false, error: 'Bitte alle Pflichtfelder ausfüllen' }, origin);
       }
@@ -1336,15 +1363,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (u.pathname === '/admin/partner/categories' && req.method === 'GET') {
-      const categories = ['Filament', 'Drucker', 'Software', 'Zubehör'].map(category => ({
-        category,
-        activePartner: activePartnerByCategory(category) ? {
-          id: activePartnerByCategory(category).id,
-          companyName: activePartnerByCategory(category).companyName,
-          vipStatus: activePartnerByCategory(category).vipStatus
-        } : null,
-        waiting: (state.partnerRequests || []).filter(item => item.category === category && item.status === 'waitlist').length
-      }));
+      const categories = ['Filament', 'Drucker', 'Software', 'Zubehör'].map(category => {
+        const activePartner = activePartnerByCategory(category);
+        return {
+          category,
+          activePartner: activePartner ? {
+            id: activePartner.id,
+            companyName: activePartner.companyName,
+            vipStatus: activePartner.vipStatus
+          } : null,
+          waiting: (state.partnerRequests || []).filter(item => item.category === category && item.status === 'waitlist').length
+        };
+      });
       return json(res, 200, { ok: true, categories }, origin);
     }
 

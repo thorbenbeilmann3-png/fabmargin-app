@@ -53,6 +53,8 @@
   let logoTapCount = 0;
   let logoTapTimer = null;
   let adminToken = null; // JWT-Session-Token nach Admin-Login
+  let adminAiPollTimer = null;
+  const adminAiPendingActions = {};
 
   function pwStrength(pw) {
     let s = 0;
@@ -188,6 +190,7 @@
     $('adminRefreshBtn').addEventListener('click', adminLoadDashboard);
     $('adminLogoutBtn').addEventListener('click', () => {
       adminToken = null;
+      if (adminAiPollTimer) { clearInterval(adminAiPollTimer); adminAiPollTimer = null; }
       window.__getAdminToken = () => null;
       $('adminDashboard').classList.add('hidden');
       $('adminLoginBox').classList.remove('hidden');
@@ -215,6 +218,10 @@
     $('adminLoadUsersBtn').addEventListener('click', adminLoadUsers);
     $('adminLoadCommBtn').addEventListener('click', adminLoadCommunity);
     $('adminLoadLogBtn').addEventListener('click', adminLoadSecLog);
+    if ($('adminAiChatSendBtn')) $('adminAiChatSendBtn').addEventListener('click', () => { adminAiSendMessage().catch(() => {}); });
+    if ($('adminAiChatInput')) $('adminAiChatInput').addEventListener('keydown', e => { if (e.key === 'Enter') adminAiSendMessage().catch(() => {}); });
+    if ($('adminAiReloadBtn')) $('adminAiReloadBtn').addEventListener('click', () => { adminAiRefresh().catch(() => {}); });
+    if ($('adminAiAuditLoadBtn')) $('adminAiAuditLoadBtn').addEventListener('click', () => { adminAiLoadAudit().catch(() => {}); });
     $('adminExportBtn').addEventListener('click', adminExport);
     $('adminWipeBtn').addEventListener('click', async () => {
       if (!confirm('Server-Daten wirklich löschen? (Nutzer, Codes, Community)')) return;
@@ -299,9 +306,15 @@
       $('adminLoginBox').classList.add('hidden');
       $('adminDashboard').classList.remove('hidden');
       adminLoadDashboard();
+      adminAiRefresh().catch(() => {});
+      adminAiLoadAudit().catch(() => {});
+      if (!adminAiPollTimer) {
+        adminAiPollTimer = setInterval(() => { adminAiRefresh().catch(() => {}); }, 60000);
+      }
     } else {
       $('adminLoginBox').classList.remove('hidden');
       $('adminDashboard').classList.add('hidden');
+      if (adminAiPollTimer) { clearInterval(adminAiPollTimer); adminAiPollTimer = null; }
     }
   }
 
@@ -354,6 +367,11 @@
       $('adminLoginBox').classList.add('hidden');
       $('adminDashboard').classList.remove('hidden');
       adminLoadDashboard();
+      adminAiRefresh().catch(() => {});
+      adminAiLoadAudit().catch(() => {});
+      if (!adminAiPollTimer) {
+        adminAiPollTimer = setInterval(() => { adminAiRefresh().catch(() => {}); }, 60000);
+      }
     } catch (e) { $('adminLoginErr').textContent = '❌ Nicht erreichbar: ' + e.message; }
   }
 
@@ -470,6 +488,164 @@
       a.click();
     } catch (e) { alert('Fehler: ' + e.message); }
   }
+
+  function adminAiEsc(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function adminAiRiskLabel(risk) {
+    if (risk === 'high') return 'hoch';
+    if (risk === 'medium') return 'mittel';
+    if (risk === 'low') return 'niedrig';
+    return 'niedrig';
+  }
+  function adminAiSeverityClass(severity) {
+    if (severity === 'critical') return 'sev-critical';
+    if (severity === 'important') return 'sev-important';
+    return 'sev-info';
+  }
+  function adminAiSetStatus(text, isError = false) {
+    if (!$('adminAiStatus')) return;
+    $('adminAiStatus').style.color = isError ? 'var(--red)' : 'var(--muted)';
+    $('adminAiStatus').textContent = text || '';
+  }
+  function renderAdminAiChat(messages) {
+    const box = $('adminAiChatMessages');
+    if (!box) return;
+    if (!messages || !messages.length) {
+      box.innerHTML = '<p class="muted small" style="text-align:center;padding:14px 4px">Noch kein Verlauf. Stelle eine Admin-Frage an die KI.</p>';
+      return;
+    }
+    box.innerHTML = messages.map(item => {
+      const isAdmin = item.role === 'admin';
+      const actions = Array.isArray(item.actions) ? item.actions : [];
+      actions.forEach(action => { adminAiPendingActions[action.id] = action; });
+      return `<div class="admin-ai-msg ${isAdmin ? 'admin' : 'assistant'}">
+        <span class="avatar">${isAdmin ? '👤' : '🤖'}</span>
+        <div class="bubble">
+          <div>${adminAiEsc(item.text || '')}</div>
+          ${actions.length ? `<div class="admin-ai-actions">${actions.map(action => `
+            <button class="tiny" data-ai-action="execute" data-ai-id="${adminAiEsc(action.id)}">✅ Ja ausführen</button>
+            <button class="ghost tiny" data-ai-action="details" data-ai-id="${adminAiEsc(action.id)}">📋 Mehr Details</button>
+            <button class="danger tiny" data-ai-action="cancel" data-ai-id="${adminAiEsc(action.id)}">❌ Abbrechen</button>
+          `).join('')}</div>` : ''}
+          <div class="small muted" style="margin-top:6px">${new Date(item.time).toLocaleString('de-DE')}</div>
+        </div>
+      </div>`;
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+  async function adminAiSendMessage() {
+    const input = $('adminAiChatInput');
+    if (!input) return;
+    const message = (input.value || '').trim();
+    if (!message) return;
+    adminAiSetStatus('KI analysiert Anfrage…');
+    const response = await adminPost('/admin/ai/chat', { message });
+    if (!response || !response.ok) {
+      adminAiSetStatus('Fehler: ' + ((response && response.error) || 'Anfrage fehlgeschlagen'), true);
+      return;
+    }
+    input.value = '';
+    adminAiSetStatus('Antwort erhalten.');
+    await adminAiRefresh();
+  }
+  async function adminAiExecute(actionId) {
+    const action = adminAiPendingActions[actionId];
+    if (!action) {
+      adminAiSetStatus('Aktion nicht mehr verfügbar.', true);
+      return;
+    }
+    if (!confirm(`Aktion "${action.title}" wirklich ausführen?`)) return;
+    const payload = { confirm: true };
+    if (action.action === 'freeze_user' && !action.username) {
+      const username = prompt('Welcher Nutzer soll gesperrt werden? (Benutzername)');
+      if (!username) return;
+      payload.username = username.trim();
+    }
+    if (action.risk === 'high' && !confirm('⚠️ High-Risk-Aktion. Soll die erste Bestätigung gesendet werden?')) return;
+    let result = await adminPost('/admin/ai/action/' + encodeURIComponent(actionId), payload);
+    if (result && result.needsExtraConfirmation) {
+      if (!confirm('Zusätzliche Sicherheitsbestätigung erforderlich. Wirklich endgültig ausführen?')) return;
+      result = await adminPost('/admin/ai/action/' + encodeURIComponent(actionId), { ...payload, confirm: true, extraConfirm: true });
+    }
+    if (!result || !result.ok) {
+      adminAiSetStatus('❌ Ausführung fehlgeschlagen: ' + ((result && result.error) || 'Unbekannt'), true);
+      return;
+    }
+    adminAiSetStatus('✅ ' + (result.message || 'Aktion erfolgreich ausgeführt.'));
+    await adminAiRefresh();
+    await adminAiLoadAudit();
+  }
+  async function adminAiCancel(actionId) {
+    if (!confirm('Aktion wirklich abbrechen?')) return;
+    const result = await adminPost('/admin/ai/action/' + encodeURIComponent(actionId), { cancel: true });
+    if (!result || !result.ok) {
+      adminAiSetStatus('❌ Abbruch fehlgeschlagen: ' + ((result && result.error) || 'Unbekannt'), true);
+      return;
+    }
+    adminAiSetStatus('Aktion abgebrochen.');
+    await adminAiRefresh();
+    await adminAiLoadAudit();
+  }
+  function adminAiDetails(actionId) {
+    const action = adminAiPendingActions[actionId];
+    if (!action) return alert('Keine Details verfügbar.');
+    alert([
+      `Aktion: ${action.title}`,
+      `Risk-Level: ${adminAiRiskLabel(action.risk)} (${action.risk})`,
+      `Details: ${action.detail || 'Keine Details'}`,
+      action.username ? `Nutzer: ${action.username}` : ''
+    ].filter(Boolean).join('\n'));
+  }
+  async function adminAiLoadAudit() {
+    const box = $('adminAiAuditList');
+    if (!box) return;
+    const response = await adminGet('/admin/ai/audit-log');
+    if (!response || !response.ok) return;
+    const entries = response.entries || [];
+    if (!entries.length) {
+      box.innerHTML = '<span class="muted small">Noch keine Audit-Einträge.</span>';
+      return;
+    }
+    box.innerHTML = entries.slice(0, 12).map(entry =>
+      `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+        <strong>${adminAiEsc(entry.action)}</strong> · ${adminAiEsc(entry.result)}<br>
+        <span class="small muted">${adminAiEsc(entry.actor)} · ${new Date(entry.time).toLocaleString('de-DE')}</span>
+      </div>`
+    ).join('');
+  }
+  async function adminAiRefresh() {
+    const [chat, alerts, valuation] = await Promise.all([
+      adminGet('/admin/ai/chat'),
+      adminGet('/admin/ai/alerts'),
+      adminGet('/admin/ai/valuation')
+    ]);
+    if (chat && chat.ok) renderAdminAiChat(chat.messages || []);
+    if (alerts && alerts.ok) {
+      const total = Number(alerts.total || 0);
+      if ($('adminAiAlertBadge')) $('adminAiAlertBadge').textContent = String(total);
+      if ($('adminAiAlerts')) {
+        const summary = `🔴 ${alerts.severity?.critical || 0} · 🟡 ${alerts.severity?.important || 0} · 🟢 ${alerts.severity?.info || 0}`;
+        const lines = (alerts.alerts || []).slice(0, 3).map(item => `<span class="${adminAiSeverityClass(item.severity)}">${adminAiEsc(item.icon || '')} ${adminAiEsc(item.message)}</span>`).join('<br>');
+        $('adminAiAlerts').innerHTML = `<strong>Alerts:</strong> ${summary}${lines ? '<br>' + lines : ''}`;
+      }
+    }
+    if (valuation && valuation.ok && $('adminAiValuation')) {
+      const v = valuation.valuation || {};
+      $('adminAiValuation').textContent = `Live App-Wert: ${Number(v.value || 0).toLocaleString('de-DE')} · Nutzer: ${v.users || 0} · Partner: ${v.partners || 0} · Premium-Käufe: ${v.premiumPurchases || 0} · Wachstum: ${v.growthPercent || 0}%`;
+    }
+  }
+  document.addEventListener('click', (event) => {
+    if (!adminToken) return;
+    const btn = event.target.closest('[data-ai-action][data-ai-id]');
+    if (!btn) return;
+    const action = btn.dataset.aiAction;
+    const id = btn.dataset.aiId;
+    if (!id) return;
+    if (action === 'execute') adminAiExecute(id).catch(() => {});
+    if (action === 'details') adminAiDetails(id);
+    if (action === 'cancel') adminAiCancel(id).catch(() => {});
+  });
 
   async function doLogin() {
     const pw = $('loginPw').value;

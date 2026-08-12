@@ -136,6 +136,20 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .legal-page-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .legal-page-nav button{width:auto}
 .ai-banner{background:#24180f;border:1px solid #5c3a23;color:#ffd6b8;padding:10px 12px;border-radius:14px;font-size:12px;margin:10px 0}
+.admin-ai-wrap{display:flex;flex-direction:column;gap:10px}
+.admin-ai-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.admin-ai-badge{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;border-radius:999px;background:#3a2a20;color:#ffd6b8;font-size:12px;font-weight:800;padding:0 8px}
+.admin-ai-chat{background:#111;border:1px solid #2f2f2f;border-radius:16px;padding:10px;min-height:180px;max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.admin-ai-msg{display:flex;gap:8px;align-items:flex-start}
+.admin-ai-msg .avatar{width:28px;height:28px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#252525;font-size:14px}
+.admin-ai-msg .bubble{flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:14px;padding:10px 12px;font-size:13px;white-space:pre-line}
+.admin-ai-msg.admin{flex-direction:row-reverse}
+.admin-ai-msg.admin .bubble{background:#24180f;border-color:#473120}
+.admin-ai-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.admin-ai-actions button{padding:6px 10px;font-size:12px;border-radius:9px}
+.sev-critical{color:#ff8b95}
+.sev-important{color:#ffd28a}
+.sev-info{color:#9fe8b8}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){
   header{padding-top:18px}
@@ -699,6 +713,28 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <div id="adminTeil7Status" class="small muted" style="margin-top:6px"></div>
       </div>
 
+      <div class="card">
+        <div class="admin-ai-wrap" id="adminAiChat">
+          <div class="admin-ai-header">
+            <h2 style="margin:0">🤖 Admin KI-Assistent</h2>
+            <span class="admin-ai-badge" id="adminAiAlertBadge" title="Offene Alerts">0</span>
+          </div>
+          <div id="adminAiValuation" class="small muted">App-Wert wird geladen…</div>
+          <div id="adminAiAlerts" class="small muted">Alerts werden geladen…</div>
+          <div id="adminAiChatMessages" class="admin-ai-chat"></div>
+          <div class="row">
+            <input id="adminAiChatInput" maxlength="700" placeholder="Problem oder Frage an die Admin-KI…">
+            <button id="adminAiChatSendBtn">Senden</button>
+          </div>
+          <div class="row">
+            <button class="ghost tiny" id="adminAiReloadBtn">Neu laden</button>
+            <button class="ghost tiny" id="adminAiAuditLoadBtn">Audit-Log</button>
+          </div>
+          <div id="adminAiStatus" class="small muted"></div>
+          <div id="adminAiAuditList" class="small muted"></div>
+        </div>
+      </div>
+
       <!-- Backend-URL -->
       <div class="card">
         <h2>🌐 Backend-URL</h2>
@@ -1008,6 +1044,7 @@ Zahlungsdaten werden nicht direkt von uns gespeichert. Zahlungen werden über ex
 KI-Verarbeitung: Zur Verarbeitung von Partner-Anfragen und Preisempfehlungen nutzen wir KI-gestützte Systeme. Eingaben werden zur Analyse verarbeitet aber nicht dauerhaft gespeichert. Deine Daten werden nicht zum Trainieren der KI verwendet. Du kannst KI-Funktionen jederzeit in Einstellungen → KI &amp; Privatsphäre deaktivieren.
 
 Wir nutzen KI-Technologie für ausgewählte Empfehlungen und automatische Antworten. Wenn du KI-Funktionen deaktivierst, findet für diese Funktionen keine KI-Verarbeitung statt.</p>
+      <p class="legal-text"><strong>Admin-KI-System:</strong> Unser eingebauter Admin-KI-Assistent verarbeitet ausschließlich anonymisierte App-Status-Daten (z. B. Anzahl Nutzer, Incidents, Banner-Slot-Status) direkt innerhalb unseres eigenen Systems ohne externen KI-Dienst. Kritische Aktionen benötigen immer eine zusätzliche manuelle Bestätigung durch einen Admin. Jede KI-Aktion wird mit Zeitstempel und Ergebnis in einem Audit-Trail protokolliert.</p>
       <div class="legal-page-nav">
         <button class="ghost tiny" data-open-legal="overview">Alle Rechtsseiten</button>
       </div>

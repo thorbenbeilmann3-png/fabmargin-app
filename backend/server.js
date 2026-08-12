@@ -52,6 +52,7 @@ if (!state.purchases) { state.purchases = {}; saveState(); }
 if (!state.users) { state.users = {}; saveState(); }            // username -> {email, passwordHash, salt, activatedAt, blocked}
 if (!state.activationCodes) { state.activationCodes = {}; saveState(); } // code -> {createdAt, usedBy, usedAt}
 if (!state.community) { state.community = []; saveState(); }    // [{id, title, text, author, votes, status, createdAt}]
+if (!state.supportMessages) { state.supportMessages = []; saveState(); }
 
 function incident(type, detail, severity = 'info') {
   const item = { id: crypto.randomUUID(), time: new Date().toISOString(), type, detail, severity };
@@ -163,6 +164,23 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, token: createSession(), expiresAt: Date.now() + 30 * 60 * 1000 }, origin);
     }
 
+    // Support-Chat: Nachricht speichern
+    if (u.pathname === '/support/message' && req.method === 'POST') {
+      if (!rateOk('support:' + ip, 20, 60000)) return json(res, 429, { ok: false, error: 'Zu viele Anfragen' }, origin);
+      const b2 = await body(req);
+      if (!b2.text || typeof b2.text !== 'string' || !b2.text.trim()) return json(res, 400, { ok: false, error: 'text erforderlich' }, origin);
+      if (!state.supportMessages) state.supportMessages = [];
+      state.supportMessages.unshift({ id: crypto.randomUUID(), text: b2.text.trim().slice(0, 500), ts: b2.ts || new Date().toISOString(), ip });
+      state.supportMessages = state.supportMessages.slice(0, 500);
+      saveState();
+      return json(res, 200, { ok: true }, origin);
+    }
+
+    // Support-Chat: Nachrichten abrufen (Admin)
+    if (u.pathname === '/support/messages' && req.method === 'GET') {
+      return json(res, 200, { ok: true, messages: state.supportMessages || [] }, origin);
+    }
+
     // ---------- Geschützte Admin-Endpunkte ----------
 
     if (u.pathname.startsWith('/admin/') && u.pathname !== '/admin/login') {
@@ -224,11 +242,24 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, incidents: state.security.incidents }, origin);
     }
 
+    // Passwort ändern
+    if (u.pathname === '/admin/change-password' && req.method === 'POST') {
+      const bp = await body(req);
+      if (!bp.newPassword || bp.newPassword.length < 12) return json(res, 400, { ok: false, error: 'Mindestens 12 Zeichen' }, origin);
+      const newSalt = b64(crypto.randomBytes(16));
+      state.admin.salt = newSalt;
+      state.admin.passwordHash = hashPassword(bp.newPassword, newSalt);
+      state.admin.updatedAt = new Date().toISOString();
+      saveState();
+      incident('admin_password_changed', 'ip=' + ip, 'warn');
+      return json(res, 200, { ok: true }, origin);
+    }
+
     // Käufe pausieren / fortsetzen
     if (u.pathname === '/admin/pause-purchases' && req.method === 'POST') {
-      const b = await body(req);
+      const bpp = await body(req);
       state.security.purchasesPaused = true;
-      state.security.pauseReason = b.reason || 'Manuell pausiert';
+      state.security.pauseReason = bpp.reason || 'Manuell pausiert';
       saveState();
       incident('admin_pause_purchases', state.security.pauseReason, 'warn');
       return json(res, 200, { ok: true }, origin);
@@ -294,7 +325,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true }, origin);
     }
 
-    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
+    // ... weitere Admin-Endpunkte (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen) (OTP-Reset etc.) hier ergänzen (aus v1 übernehmen)
 
     return json(res, 404, { ok: false, error: 'Nicht gefunden' }, origin);
   } catch (e) {

@@ -399,6 +399,13 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <div id="changePwStatus" class="small" style="margin-top:8px"></div>
       </div>
 
+      <!-- Support-Nachrichten -->
+      <div class="card">
+        <h2>🎧 Support-Nachrichten</h2>
+        <div id="adminSupportList"><p class="muted small">Lade Support-Nachrichten…</p></div>
+        <div style="margin-top:8px"><button class="ghost tiny" id="adminSupportRefreshBtn">Aktualisieren</button></div>
+      </div>
+
       <!-- Werkzeuge -->
       <div class="card">
         <h2>🧹 Werkzeuge</h2>
@@ -444,16 +451,31 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
   </main>
 </section>
 <section id="screenCommunity" class="hidden">
-  <header><div class="brand"><img src="icon-192.png" alt=""> Community</div>
+  <header><div class="brand"><img src="icon-192.png" alt=""> Chat</div>
     <button class="ghost tiny" id="commBackBtn" style="position:absolute;top:20px;left:16px">← Zurück</button></header>
   <main>
-    <div class="card"><h2>💡 Neuer Vorschlag</h2>
+    <!-- Community-Bereich (bestehend) -->
+    <div class="card"><h2>💡 Community – Neuer Vorschlag</h2>
       <label>Titel</label><input id="commTitle" maxlength="80">
       <label>Beschreibung</label><textarea id="commText" maxlength="500" style="min-height:80px"></textarea>
       <div style="margin-top:8px"><button id="commPostBtn">Vorschlag senden</button></div>
     </div>
     <div class="card"><h2>🗳 Vorschläge & Abstimmung</h2>
       <div id="commList"><p class="muted small">Lade…</p></div>
+    </div>
+
+    <!-- Support-Chat (neu) -->
+    <div class="card" style="padding-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">🎧 Support-Chat</h2>
+        <button class="ghost tiny" id="supportClearBtn">Chat leeren</button>
+      </div>
+      <div id="supportMessages" style="min-height:160px;max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 0 8px"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="supportInput" placeholder="Nachricht schreiben…" style="flex:1" maxlength="500">
+        <button id="supportSendBtn" style="flex-shrink:0">Senden</button>
+      </div>
+      <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">printprofit3d_business.stoneware127@passmail.net</a></p>
     </div>
   </main>
   <nav class="bottom">

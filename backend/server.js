@@ -21,6 +21,26 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 const APP_BASE_URL = process.env.APP_BASE_URL || 'https://fabmargin.app';
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const DEFAULT_AI_SETTINGS = Object.freeze({
+  recommendations: true,
+  analysis: true,
+  chatbot: true
+});
+function normalizeAiSettings(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    recommendations: source.recommendations !== false,
+    analysis: source.analysis !== false,
+    chatbot: source.chatbot !== false
+  };
+}
+function aiSettingsResponse(settings) {
+  const normalized = normalizeAiSettings(settings);
+  return {
+    settings: normalized,
+    allDisabled: !normalized.recommendations && !normalized.analysis && !normalized.chatbot
+  };
+}
 
 // Google Play Developer API Zugangsdaten (Service-Account JSON als ENV oder Datei)
 const GOOGLE_PLAY_PACKAGE = process.env.GOOGLE_PLAY_PACKAGE || 'com.printprofit3d.fabmargin';
@@ -141,6 +161,7 @@ function getCurrentUser(req) {
   const user = state.users[sess.username];
   if (!user) return null;
   ensureUserDefaults(user);
+  user.aiSettings = normalizeAiSettings(user.aiSettings);
   return { username: sess.username, token: sess.token, user };
 }
 function hasOperatorAccess(req) {
@@ -172,6 +193,7 @@ function ensureUserDefaults(user) {
   if (!Array.isArray(user.twoFactor.backupCodeHashes)) user.twoFactor.backupCodeHashes = [];
   if (!Array.isArray(user.twoFactor.recoveryCodesPreview)) user.twoFactor.recoveryCodesPreview = [];
   if (!user.role) user.role = 'user';
+  if (!user.aiSettings || typeof user.aiSettings !== 'object') user.aiSettings = { ...DEFAULT_AI_SETTINGS };
   return user;
 }
 function addPoints(username, amount, reason) {
@@ -607,7 +629,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': origin || '*',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Security-Secret',
-      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS'
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
     });
     return res.end();
   }
@@ -687,7 +709,8 @@ const server = http.createServer(async (req, res) => {
         purchases: [],
         devices: [],
         settings: { bannerEnabled: true },
-        twoFactor: { enabled: false, secret: '', pendingSecret: '', backupCodeHashes: [], recoveryCodesPreview: [], verifiedAt: null }
+        twoFactor: { enabled: false, secret: '', pendingSecret: '', backupCodeHashes: [], recoveryCodesPreview: [], verifiedAt: null },
+        aiSettings: { ...DEFAULT_AI_SETTINGS }
       };
       state.activationCodes[code].usedBy = username;
       state.activationCodes[code].usedAt = new Date().toISOString();
@@ -763,7 +786,8 @@ const server = http.createServer(async (req, res) => {
         devices: user.devices || [],
         twoFactorEnabled: !!user.twoFactor?.enabled,
         adFree: userHasAdFree(user),
-        premiumActive: userHasPremium(user)
+        premiumActive: userHasPremium(user),
+        aiSettings: normalizeAiSettings(user.aiSettings)
       }, origin);
     }
 
@@ -870,6 +894,31 @@ const server = http.createServer(async (req, res) => {
         premiumActive: userHasPremium(viewer.user),
         adFree: userHasAdFree(viewer.user)
       }, origin);
+    }
+
+    if (u.pathname === '/user/ai-settings' && req.method === 'GET') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      return json(res, 200, { ok: true, ...aiSettingsResponse(viewer.user.aiSettings) }, origin);
+    }
+
+    if (u.pathname === '/user/ai-settings' && req.method === 'PUT') {
+      const viewer = getCurrentUser(req);
+      if (!viewer) return json(res, 401, { ok: false, error: 'Nicht autorisiert' }, origin);
+      const b = await body(req);
+      const payload = b && typeof b.settings === 'object' ? b.settings : b;
+      const current = normalizeAiSettings(viewer.user.aiSettings);
+      const next = b && b.allDisabled === true
+        ? { recommendations: false, analysis: false, chatbot: false }
+        : {
+            recommendations: typeof payload.recommendations === 'boolean' ? payload.recommendations : current.recommendations,
+            analysis: typeof payload.analysis === 'boolean' ? payload.analysis : current.analysis,
+            chatbot: typeof payload.chatbot === 'boolean' ? payload.chatbot : current.chatbot
+          };
+      viewer.user.aiSettings = next;
+      saveState();
+      incident('user_ai_settings_updated', 'user=' + viewer.username, 'info');
+      return json(res, 200, { ok: true, ...aiSettingsResponse(next) }, origin);
     }
 
     // Support-Chat: Nachricht speichern

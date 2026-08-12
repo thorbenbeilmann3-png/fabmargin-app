@@ -1,31 +1,55 @@
-name: Build FabMargin 3D
-on: { workflow_dispatch: {}, push: { branches: [main] } }
+# GitHub Actions Workflow: FabMargin APK Builder
+# Trigger: manuell (workflow_dispatch) ODER bei Push auf main
+name: Build APK
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - uses: actions/setup-java@v4
-        with: { distribution: 'temurin', java-version: '17' }
-      - uses: android-actions/setup-android@v3
-      - name: Install deps
+      # Schritt 1: Repository auschecken
+      - name: Repository auschecken
+        uses: actions/checkout@v4
+
+      # Schritt 2: Java 17 (Temurin) einrichten
+      - name: Java 17 einrichten
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Schritt 3: Node.js 18 einrichten
+      - name: Node.js 18 einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      # Schritt 4: NPM-Abhängigkeiten installieren (Capacitor + Dependencies)
+      - name: NPM-Abhängigkeiten installieren
+        run: npm install
+
+      # Schritt 5: Capacitor Android-Projekt erstellen und synchronisieren
+      - name: Capacitor Android-Projekt erstellen und synchronisieren
         run: |
-          npm install
-          npx cap add android || echo "already added"
+          # Android-Ordner neu erstellen damit cap add android sauber läuft
+          rm -rf android
+          npx cap add android
           npx cap sync android
-      - name: Build Debug APK (zum Sideloaden auf Ihrem Handy)
+
+      # Schritt 6: Debug-APK mit Gradle bauen
+      - name: Debug-APK bauen
         run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug
-      - name: Upload Debug APK
+
+      # Schritt 7: APK als GitHub Actions Artifact hochladen (Aufbewahrung: 30 Tage)
+      - name: APK als Artifact hochladen
         uses: actions/upload-artifact@v4
         with:
-          name: fabmargin-debug-apk
+          name: FabMargin-debug.apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-      - name: Build Release AAB (für Play Store, unsigniert)
-        run: cd android && ./gradlew bundleRelease
-      - name: Upload Release AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: fabmargin-release-aab-unsigned
-          path: android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 30

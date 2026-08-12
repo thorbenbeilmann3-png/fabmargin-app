@@ -107,8 +107,18 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
 .mini-stat strong{display:block;font-size:18px}
 .gallery-strip{display:flex;gap:8px;overflow:auto;padding-top:6px}
 .gallery-strip img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+.gallery-item{position:relative}
+.gallery-item button{position:absolute;top:4px;right:4px;padding:4px 6px;border-radius:8px;font-size:11px}
 .note-box{background:#111;border:1px dashed #47301f;border-radius:14px;padding:12px}
 .tight-list{display:flex;flex-direction:column;gap:10px}
+.banner-slot{display:flex;gap:12px;align-items:center;background:linear-gradient(135deg,#2a1a10,#171717);border:1px solid #5e3a1d;border-radius:20px;padding:14px}
+.banner-slot .label{display:inline-flex;padding:4px 10px;border-radius:999px;background:#5f2400;color:#ffd9bd;font-size:11px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+.banner-slot .title{font-weight:800}
+.footer-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.footer-links button{flex:1 1 160px}
+.vip-star{color:#ffcc66;font-weight:900}
+.legal-list{display:grid;gap:10px}
+.legal-list .note-box{white-space:pre-line}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:600px){
   header{padding-top:18px}
@@ -251,6 +261,45 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <p class="muted" id="cmsHeroText">Dunkles Design, klare Karten und mobile Navigation für einen schnellen Überblick.</p>
     </div>
 
+    <div id="bannerTopCard" class="card hidden">
+      <div id="bannerTopSlot" class="banner-slot"></div>
+    </div>
+
+    <div class="card hidden" id="userSecurityCard">
+      <h2>🔐 Sicherheit & Einstellungen</h2>
+      <div id="userSecurityStatus" class="chip-list"></div>
+      <label class="checkbox-row" for="bannerEnabledToggle" style="margin-top:10px">
+        <input id="bannerEnabledToggle" type="checkbox" checked>
+        <span>Banner anzeigen (Premium-Nutzer und werbefreie Käufe bleiben automatisch ohne Werbung)</span>
+      </label>
+      <div class="row">
+        <button class="ghost tiny" id="saveBannerSettingsBtn">Einstellungen speichern</button>
+      </div>
+      <label>2FA-Code</label>
+      <input id="twoFactorCode" placeholder="6-stelliger Code oder Backup-Code">
+      <div class="row" style="margin-top:10px">
+        <button class="tiny" id="twoFactorEnableBtn">2FA vorbereiten</button>
+        <button class="ghost tiny" id="twoFactorVerifyBtn">2FA bestätigen</button>
+        <button class="danger tiny" id="twoFactorDisableBtn">2FA deaktivieren</button>
+      </div>
+      <div id="twoFactorStatus" class="small muted" style="margin-top:8px"></div>
+      <div id="twoFactorSetupBox" class="note-box small hidden" style="margin-top:10px"></div>
+      <h3 style="margin-top:18px">Aktive Geräte</h3>
+      <div id="deviceList" class="tight-list"></div>
+    </div>
+
+    <div class="card hidden" id="userPaymentsCard">
+      <h2>💳 Stripe & Käufe</h2>
+      <p class="muted small">Premium blendet Banner automatisch aus. Werbefrei kann auch einmalig für 4,99€ gekauft werden.</p>
+      <div class="row">
+        <button class="tiny" data-checkout="premium_subscription">Premium-Abo kaufen</button>
+        <button class="ghost tiny" data-checkout="ad_free_lifetime">Werbefrei 4,99€</button>
+        <button class="ghost tiny" data-checkout="slicer_profile_pack">Slicer-Profile kaufen</button>
+      </div>
+      <div id="paymentStatus" class="small muted" style="margin-top:8px"></div>
+      <div id="purchaseHistoryList" class="tight-list" style="margin-top:12px"></div>
+    </div>
+
     <div class="card" id="printerCard">
       <h2>🧩 Ihre Module</h2>
       <div id="ownedList"><p class="muted small">Noch keine Module freigeschaltet.</p></div>
@@ -279,6 +328,17 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <p class="muted small">Freigegebene Profile können mit Punkten freigeschaltet und anschließend bewertet werden.</p>
       <div id="slicerMarketplaceStatus" class="note-box muted small">Bitte zuerst im Kundenbereich anmelden, um Profile zu kaufen oder zu teilen.</div>
       <div id="slicerMarketplaceList" class="tight-list" style="margin-top:12px"></div>
+    </div>
+
+    <div id="bannerMiddleCard" class="card hidden">
+      <div id="bannerMiddleSlot" class="banner-slot"></div>
+    </div>
+
+    <div class="card hidden" id="mySlicerProfilesCard">
+      <h2>🖼️ Meine Profilbilder</h2>
+      <p class="muted small">Maximal 5 Bilder pro Profil und 20 Bilder insgesamt pro Nutzer. Bitte lösche alte Bilder, wenn dein Kontingent voll ist.</p>
+      <div id="mySlicerProfileMeta" class="small muted"></div>
+      <div id="mySlicerProfileList" class="tight-list" style="margin-top:12px"></div>
     </div>
 
     <div class="card" id="slicerCreateCard">
@@ -322,8 +382,8 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         </div>
         <label>Beschreibung</label>
         <textarea id="slicerDescription" maxlength="1000" style="min-height:100px" placeholder="Für welches Material, welche Ziele und welchen Drucker das Profil optimiert ist."></textarea>
-        <label>Bis zu 3 Bilder</label>
-        <input id="slicerImages" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        <label>Bis zu 5 Bilder (JPG/PNG, max. 5MB je Bild)</label>
+        <input id="slicerImages" type="file" accept="image/png,image/jpeg" multiple>
         <div id="slicerImagePreview" class="gallery-strip"></div>
         <div class="row" style="margin-top:12px">
           <button type="submit">📤 Profil freigeben</button>
@@ -336,6 +396,41 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
       <h2>🛒 Credits kaufen</h2>
       <p class="muted small">Je mehr du kaufst, desto mehr bekommst du geschenkt!</p>
       <div id="creditShopList"></div>
+    </div>
+
+    <div class="card">
+      <h2>🤝 Werbepartner werden</h2>
+      <p class="muted small">Öffentliches Partnerformular mit automatischer Vorprüfung, VIP-Kennzeichnung und Vertragsentwurf.</p>
+      <form id="partnerRequestForm">
+        <div class="row">
+          <input id="partnerCompanyName" required placeholder="Firmenname">
+          <input id="partnerWebsite" required placeholder="https://example.com">
+        </div>
+        <div class="row">
+          <input id="partnerContactEmail" type="email" required placeholder="Kontakt-E-Mail">
+          <input id="partnerCooperationType" required placeholder="Art der Zusammenarbeit, z. B. Filament">
+        </div>
+        <div class="row">
+          <input id="partnerPrinterModel" required placeholder="Drucker-Modell">
+          <input id="partnerPrinterValue" type="number" min="0" step="1" required placeholder="Wert in €">
+        </div>
+        <div class="row">
+          <input id="partnerFilamentAmount" type="number" min="0" step="1" required placeholder="Filament pro Monat (Rollen)">
+          <select id="partnerTermYears">
+            <option value="1">1 Jahr</option>
+            <option value="2">2 Jahre</option>
+            <option value="3">3 Jahre</option>
+          </select>
+        </div>
+        <label>Beschreibung des Angebots</label>
+        <textarea id="partnerDescription" required style="min-height:100px" placeholder="Was wird angeboten? Geld, Drucker, Filament, Bannerwunsch usw."></textarea>
+        <label>Banner-Text (optional)</label>
+        <input id="partnerBannerText" maxlength="140" placeholder="Kurzer Banner-Text">
+        <div class="row" style="margin-top:12px">
+          <button type="submit">Anfrage senden</button>
+        </div>
+        <div id="partnerRequestStatus" class="small muted" style="margin-top:8px"></div>
+      </form>
     </div>
 
     <div class="card">
@@ -353,6 +448,18 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <button class="ghost tiny" id="setBackendBtn">Backend einstellen</button>
         <button class="ghost tiny" id="restoreBtn">Käufe wiederherstellen</button>
         <button class="danger tiny" id="lockNowBtn">Jetzt sperren</button>
+      </div>
+    </div>
+
+    <div id="bannerBottomCard" class="card hidden">
+      <div id="bannerBottomSlot" class="banner-slot"></div>
+    </div>
+
+    <div class="card">
+      <h2>📚 Rechtliches</h2>
+      <p class="muted small">Impressum, Datenschutz und AGB sind dauerhaft in der App verfügbar.</p>
+      <div class="footer-links">
+        <button class="ghost tiny" id="footerLegalBtn">Impressum / Datenschutz / AGB</button>
       </div>
     </div>
   </main>
@@ -506,6 +613,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
           <div class="card" style="padding:10px;text-align:center"><div id="statCodes" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Freie Codes</div></div>
           <div class="card" style="padding:10px;text-align:center"><div id="statComm" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Vorschläge</div></div>
           <div class="card" style="padding:10px;text-align:center"><div id="statIncidents" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Incidents</div></div>
+          <div class="card" style="padding:10px;text-align:center"><div id="statPartners" style="font-size:1.6em;font-weight:700">–</div><div class="muted small">Partner offen</div></div>
         </div>
         <div id="adminPurchaseStatus" style="margin-top:10px" class="small"></div>
         <div class="row" style="margin-top:8px">
@@ -571,6 +679,16 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <h2>🧠 Smart Diagnostics</h2>
         <button class="ghost tiny" id="adminLoadDiagnosticsBtn">Diagnosen laden</button>
         <div id="adminDiagnosticsList" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h2>🤝 Partner-Anfragen</h2>
+        <div class="row">
+          <button class="ghost tiny" id="adminLoadPartnerRequestsBtn">Anfragen laden</button>
+          <button class="ghost tiny" id="adminLoadPartnerCategoriesBtn">Kategorien laden</button>
+        </div>
+        <div id="adminPartnerCategories" style="margin-top:10px"></div>
+        <div id="adminPartnerRequestsList" style="margin-top:10px"></div>
       </div>
 
       <!-- Master-Passwort ändern -->
@@ -687,16 +805,18 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <div class="card" id="uLoginBox"><h2>🔑 Anmelden</h2>
       <label>Benutzername</label><input id="uLoginUser" autocomplete="username">
       <label>Passwort</label><input id="uLoginPw" type="password" autocomplete="current-password">
+      <label>2FA-Code (falls aktiviert)</label><input id="uLoginTotp" autocomplete="one-time-code" placeholder="6-stelliger Code oder Backup-Code">
       <div id="uLoginErr" class="small" style="color:var(--red);margin-top:6px"></div>
       <div class="row" style="margin-top:12px">
         <button id="uLoginBtn">Anmelden</button>
         <button class="ghost" id="uRegisterSwitch">Registrieren</button>
       </div>
-      <p class="small muted" style="margin-top:10px">Passwort vergessen? Schreib uns eine E-Mail: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">Support kontaktieren</a></p>
+      <p class="small muted" style="margin-top:10px">Passwort vergessen? Schreib uns eine E-Mail: <a href="mailto:app.github.uncorrupt873@passmail.net" style="color:var(--accent)">Support kontaktieren</a></p>
     </div>
     <!-- Registrierungs-Formular -->
     <div class="card hidden" id="uRegisterBox"><h2>✉️ Registrieren</h2>
       <p class="muted small">Du benötigst einen Aktivierungscode, den du nach dem Kauf erhältst. Jeder Code kann nur einmal verwendet werden.</p>
+      <div class="warn">Bitte gib keinen echten Namen an – nutze einen Phantasienamen oder deinen Firmennamen. So schützt du deine Privatsphäre!</div>
       <label>Aktivierungscode</label><input id="uCode" placeholder="ABCD-EFGH-IJKL" autocomplete="off">
       <label>Benutzername (3–40 Zeichen)</label><input id="uNewUser" autocomplete="username">
       <label>E-Mail-Adresse</label><input id="uEmail" type="email" autocomplete="email">
@@ -743,7 +863,7 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
         <input id="supportInput" placeholder="Nachricht schreiben…" style="flex:1" maxlength="500">
         <button id="supportSendBtn" style="flex-shrink:0">Senden</button>
       </div>
-      <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="color:var(--accent)">printprofit3d_business.stoneware127@passmail.net</a></p>
+      <p class="muted small" style="margin-top:8px;text-align:center">Kontakt: <a href="mailto:app.github.uncorrupt873@passmail.net" style="color:var(--accent)">app.github.uncorrupt873@passmail.net</a></p>
     </div>
 
     <div class="card hidden" id="operatorConsoleCard">
@@ -786,7 +906,35 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     </div>
     <div class="card">
       <h2>ℹ️ Impressum</h2>
-      <p class="muted small">Diese Seite bündelt den Haftungsausschluss der App in einer dauerhaft erreichbaren Ansicht.</p>
+      <div class="legal-list">
+        <div class="note-box">Thorben Beilmann
+Kirchgasse 9
+55578 Wolfsheim
+E-Mail: app.github.uncorrupt873@passmail.net</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔒 Datenschutz</h2>
+      <div class="legal-list">
+        <div class="note-box">Wir speichern nur Daten, die für die App-Funktionen nötig sind: frei gewählter Benutzername, App-Einstellungen, Druckprofile inklusive Bilder, Punkte und Käufe.
+
+Wir speichern keine echten Namen, keine Adresse, keine Telefonnummer und keine sonstigen persönlichen Pflichtdaten. Bitte gib keinen echten Namen an – nutze einen Phantasienamen oder deinen Firmennamen. So schützt du deine Privatsphäre.
+
+Falls technisch erforderlich, nutzt die App lokale Speicher- und Sitzungsdaten wie Cookies bzw. ähnliche Browser-Speicher, damit Login, Einstellungen und Sicherheit funktionieren.
+
+Partneranfragen speichern die von dir im Formular übermittelten Firmendaten, damit wir die Anfrage prüfen, beantworten und einen Vertragsentwurf vorbereiten können.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📑 AGB</h2>
+      <div class="legal-list">
+        <div class="note-box">Die App darf nur im gesetzlichen Rahmen genutzt werden.
+Partnerverträge gelten immer nur nach ausdrücklicher Freigabe.
+Exklusive Kategorien sind auf einen aktiven Partner gleichzeitig begrenzt.
+Banner werden stets als „Werbung/Anzeige“ gekennzeichnet.
+Laufzeiten betragen maximal 3 Jahre; eine Verlängerung erfolgt nur nach neuer Abstimmung.
+Käufe und digitale Inhalte werden im Nutzerkonto dokumentiert.</div>
+      </div>
     </div>
   </main>
   <nav class="bottom">
@@ -835,8 +983,8 @@ nav.bottom .ico{display:block;font-size:20px;margin-bottom:2px}
     <h1 style="color:#ff4455;font-size:24px;margin:0 0 16px">Diese App-Kopie wurde gesperrt</h1>
     <p style="color:#ffaaaa;margin:0 0 20px;font-size:15px">Es wurde festgestellt, dass diese App-Instanz von zu vielen verschiedenen Geräten genutzt wird. Die App wurde zum Schutz vor Piraterie gesperrt.</p>
     <p style="color:#ffaaaa;margin:0 0 28px;font-size:15px">Bitte kaufe die offizielle Version.</p>
-    <a href="mailto:printprofit3d_business.stoneware127@passmail.net" style="display:inline-block;background:#ff4455;color:white;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">✉️ Kontakt aufnehmen</a>
-    <p class="muted small" style="margin-top:16px">printprofit3d_business.stoneware127@passmail.net</p>
+    <a href="mailto:app.github.uncorrupt873@passmail.net" style="display:inline-block;background:#ff4455;color:white;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:700">✉️ Kontakt aufnehmen</a>
+    <p class="muted small" style="margin-top:16px">app.github.uncorrupt873@passmail.net</p>
   </div>
 </div>
 

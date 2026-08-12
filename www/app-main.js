@@ -2,7 +2,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const show = (id) => {
-    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity']
+    ['screenSetup','screenLogin','screenHome','screenPrinters','screenFeature','screenAdmin','screenCommunity','screenUserLogin']
       .forEach(s => $(s).classList.toggle('hidden', s !== id));
     window.scrollTo(0,0);
   };
@@ -470,7 +470,36 @@
     }
   }
 
+  function renderUserProfile() {
+    const card = $('userProfileCard');
+    if (!card) return;
+    const user = window.UserAuth && window.UserAuth.current();
+    if (user && user.username) {
+      card.classList.remove('hidden');
+      const nameEl = $('userProfileName');
+      const emailEl = $('userProfileEmail');
+      if (nameEl) nameEl.textContent = user.username;
+      if (emailEl && user.email) emailEl.textContent = user.email;
+      const modsEl = $('userPurchasedModules');
+      if (modsEl) {
+        const owned = window.PurchaseManager ? window.PurchaseManager.ownedList() : [];
+        if (owned.length) {
+          modsEl.innerHTML = '<p class="muted small"><strong>Gekaufte Module:</strong></p>' +
+            owned.filter(id => id !== 'feat_bundle_all').map(id => {
+              const f = window.FEATURE_CATALOG ? window.FEATURE_CATALOG.find(x => x.id === id) : null;
+              return f ? `<span style="margin-right:6px">${f.icon} ${f.title}</span>` : '';
+            }).join('');
+        } else {
+          modsEl.innerHTML = '<p class="muted small">Noch keine Module gekauft.</p>';
+        }
+      }
+    } else {
+      card.classList.add('hidden');
+    }
+  }
+
   function renderHome() {
+    renderUserProfile();
     renderOwned();
     renderCreditBalance();
     renderCreditFeatures();
@@ -693,20 +722,40 @@
 (function(){
   const $=id=>document.getElementById(id);
   document.addEventListener('DOMContentLoaded',()=>{
-    if($('uActivateSwitch')) $('uActivateSwitch').onclick=()=>$('uActivateBox').classList.toggle('hidden');
+    // Umschalten zwischen Login und Registrierung
+    if($('uRegisterSwitch')) $('uRegisterSwitch').onclick=()=>{
+      $('uLoginBox').classList.add('hidden');
+      $('uRegisterBox').classList.remove('hidden');
+    };
+    if($('uLoginSwitch')) $('uLoginSwitch').onclick=()=>{
+      $('uRegisterBox').classList.add('hidden');
+      $('uLoginBox').classList.remove('hidden');
+    };
+    // Rückwärtskompatibilität: alter Aktivierungs-Button-Alias
+    if($('uActivateSwitch')) $('uActivateSwitch').onclick=()=>{
+      $('uLoginBox')&&$('uLoginBox').classList.add('hidden');
+      $('uRegisterBox')&&$('uRegisterBox').classList.remove('hidden');
+    };
     if($('uLoginBtn')) $('uLoginBtn').onclick=async()=>{
       $('uLoginErr').textContent='';
       try{await window.UserAuth.login($('uLoginUser').value.trim(),$('uLoginPw').value);
         document.getElementById('screenUserLogin').classList.add('hidden');
+        document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uLoginErr').textContent=e.message;}
     };
     if($('uActivateBtn')) $('uActivateBtn').onclick=async()=>{
       $('uActErr').textContent='';
-      try{await window.UserAuth.activate($('uCode').value.trim(),$('uNewUser').value.trim(),$('uNewPw').value,$('uEmail').value.trim());
+      try{await window.UserAuth.register($('uNewUser').value.trim(),$('uEmail').value.trim(),$('uNewPw').value,$('uCode').value.trim());
         document.getElementById('screenUserLogin').classList.add('hidden');
+        document.getElementById('userProfileCard')&&document.getElementById('userProfileCard').classList.remove('hidden');
         document.getElementById('screenHome').classList.remove('hidden');
       }catch(e){$('uActErr').textContent=e.message;}
+    };
+    if($('userLogoutBtn')) $('userLogoutBtn').onclick=async()=>{
+      await window.UserAuth.logout();
+      const card=document.getElementById('userProfileCard');
+      if(card) card.classList.add('hidden');
     };
     if($('commBackBtn')) $('commBackBtn').onclick=()=>{
       renderHome();
